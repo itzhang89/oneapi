@@ -75,7 +75,7 @@ export function fromGeminiStreamChunk(chunk: any): string {
   })}\n\n`;
 }
 
-// NVIDIA API 转换
+// NVIDIA API 转换 (直接透传)
 export function toNvidiaRequest(model: string, request: ChatCompletionRequest) {
   return {
     model: model,
@@ -100,38 +100,20 @@ export function fromNvidiaStreamChunk(line: string): string {
   return '';
 }
 
-// Gemini 模型名映射 (OpenAI style -> Gemini API style)
-const GEMINI_MODEL_MAP: Record<string, string> = {
-  'gemini-pro': 'gemini-2.5-pro',
-  'gemini-flash': 'gemini-2.0-flash',
-  'gemini-1.5-flash': 'gemini-2.0-flash',
-  'gemini-1.5-pro': 'gemini-2.5-pro',
-};
-
-// NVIDIA 模型名映射 (OpenAI style -> NVIDIA NIM style)
-const NVIDIA_MODEL_MAP: Record<string, string> = {
-  'nvidia/llama3-70b': 'meta/llama-3.1-70b-instruct',
-  'nvidia/llama3-8b': 'meta/llama-3.1-8b-instruct',
-};
-
 // 解析 model 字符串，返回 provider 和处理后的 model 名
 export function parseModel(model: string): { provider: 'gemini' | 'nvidia' | null; actualModel: string } {
+  // NVIDIA 模型 (nvidia/*)
   if (model.startsWith('nvidia/')) {
-    // NVIDIA 模型映射
-    const mappedModel = NVIDIA_MODEL_MAP[model] || model;
-    return { provider: 'nvidia', actualModel: mappedModel };
+    return { provider: 'nvidia', actualModel: model };
   }
 
-  // gemini-* 或 models/gemini-* 都归为 gemini
+  // Gemini 模型 (gemini-* 或 models/gemini-*)
   if (model.startsWith('gemini-') || model.startsWith('models/gemini-')) {
-    // 映射模型名
-    const mappedModel = GEMINI_MODEL_MAP[model] || model;
-    // 移除 models/ 前缀
-    const actualModel = mappedModel.replace('models/', '');
+    // 直接透传，移除 models/ 前缀
+    const actualModel = model.replace('models/', '');
     return { provider: 'gemini', actualModel };
   }
 
-  // 默认尝试 gemini，映射模型名
-  const mappedModel = GEMINI_MODEL_MAP[model] || model;
-  return { provider: 'gemini', actualModel: mappedModel };
+  // 默认归为 gemini (假设用户直接传 gemini 模型名)
+  return { provider: 'gemini', actualModel: model };
 }

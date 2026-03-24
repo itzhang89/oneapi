@@ -49,7 +49,9 @@ async function proxyGemini(
   request: ChatCompletionRequest,
   apiKey: string
 ): Promise<ProxyResult> {
-  const url = `${baseUrl}/${model}:streamGenerateContent?key=${apiKey}&alt=sse`;
+  // 根据是否流式选择端点
+  const endpoint = request.stream ? 'streamGenerateContent' : 'generateContent';
+  const url = `${baseUrl}/${model}:${endpoint}?key=${apiKey}${request.stream ? '&alt=sse' : ''}`;
 
   const geminiRequest = toGeminiRequest(model, request);
 
