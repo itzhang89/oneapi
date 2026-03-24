@@ -29,8 +29,6 @@ interface ProvidersConfig {
   nvidia: ProviderConfig;
 }
 
-const STORAGE_KEY = 'llm-proxy-master-key';
-
 const PROVIDERS: { name: string; key: 'openai' | 'gemini' | 'anthropic' | 'nvidia'; prefix: string; defaultUrl: string }[] = [
   { name: 'OpenAI', key: 'openai', prefix: 'openai-', defaultUrl: 'https://api.openai.com/v1' },
   { name: 'Gemini', key: 'gemini', prefix: 'gemini-', defaultUrl: 'https://generativelanguage.googleapis.com/v1beta/models' },
@@ -57,14 +55,6 @@ export default function AdminPage() {
   const [tempBaseUrl, setTempBaseUrl] = useState('');
   const [providerModels, setProviderModels] = useState<Record<string, ProviderModels>>({});
   const [fetchingModels, setFetchingModels] = useState<string | null>(null);
-
-  // Load master key from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      setMasterKey(saved);
-    }
-  }, []);
 
   // Load data after authentication
   useEffect(() => {
@@ -95,7 +85,6 @@ export default function AdminPage() {
     });
 
     if (res.ok) {
-      localStorage.setItem(STORAGE_KEY, masterKey);
       setIsAuthenticated(true);
       const data = await res.json();
       setUserKeys(data.keys || []);
@@ -110,42 +99,6 @@ export default function AdminPage() {
     setIsAuthenticated(false);
     setUserKeys([]);
     setProviders(null);
-  };
-
-  const handleGenerateMasterKey = () => {
-    const newKey = 'mk-' + Array.from(crypto.getRandomValues(new Uint8Array(16)))
-      .map(b => b.toString(16).padStart(2, '0')).join('');
-    setMasterKey(newKey);
-    localStorage.setItem(STORAGE_KEY, newKey);
-    navigator.clipboard.writeText(newKey).catch(() => {});
-    setMessage('新 Master Key 已生成并复制到剪贴板！');
-  };
-
-  const handleSaveMasterKey = async () => {
-    if (!masterKey) {
-      setMessage('请输入 Master Key');
-      return;
-    }
-
-    const res = await fetch('/api/admin/keys', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-master-key': masterKey,
-      },
-      body: JSON.stringify({
-        action: 'setMasterKey',
-        newMasterKey: masterKey,
-      }),
-    });
-
-    if (res.ok) {
-      localStorage.setItem(STORAGE_KEY, masterKey);
-      navigator.clipboard.writeText(masterKey).catch(() => {});
-      setMessage('Master Key 已保存并复制到剪贴板！');
-    } else {
-      setMessage('保存失败');
-    }
   };
 
   const handleCreateKey = async () => {
@@ -323,9 +276,6 @@ export default function AdminPage() {
             <button className="btn btn-primary" onClick={handleLogin}>
               登录
             </button>
-            <button className="btn" onClick={handleGenerateMasterKey}>
-              生成随机 Key
-            </button>
           </div>
           {message && (
             <div style={{ marginTop: 10, color: 'red' }}>{message}</div>
@@ -342,26 +292,6 @@ export default function AdminPage() {
         <button className="btn btn-small" onClick={handleLogout}>
           退出
         </button>
-      </div>
-
-      {/* Master Key Management */}
-      <div className="card">
-        <h2>Master Key 设置</h2>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <input
-            type="password"
-            value={masterKey}
-            onChange={(e) => setMasterKey(e.target.value)}
-            placeholder="Master Key"
-            style={{ flex: 1 }}
-          />
-          <button className="btn btn-primary" onClick={handleSaveMasterKey}>
-            保存并复制
-          </button>
-          <button className="btn" onClick={handleGenerateMasterKey}>
-            生成随机
-          </button>
-        </div>
       </div>
 
       {/* Provider Keys Management */}

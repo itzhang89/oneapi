@@ -59,20 +59,26 @@ export function loadConfig(): ApiKeysConfig {
 
   // 支持环境变量覆盖
   if (process.env.API_KEYS_JSON) {
-    cachedConfig = JSON.parse(process.env.API_KEYS_JSON);
-    return cachedConfig!;
+    const parsed = JSON.parse(process.env.API_KEYS_JSON) as ApiKeysConfig;
+    // masterKey 只从环境变量 TOKEN 读取，忽略配置文件中的值
+    parsed.masterKey = process.env.TOKEN || '';
+    cachedConfig = parsed;
+    return cachedConfig;
   }
 
   if (fs.existsSync(CONFIG_PATH)) {
     const content = fs.readFileSync(CONFIG_PATH, 'utf-8');
-    cachedConfig = JSON.parse(content);
-    return cachedConfig!;
+    const parsed = JSON.parse(content) as ApiKeysConfig;
+    // masterKey 只从环境变量 TOKEN 读取，忽略配置文件中的值
+    parsed.masterKey = process.env.TOKEN || '';
+    cachedConfig = parsed;
+    return cachedConfig;
   }
 
   // 支持单个环境变量
   if (process.env.GEMINI_API_KEY || process.env.NVIDIA_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY) {
     cachedConfig = {
-      masterKey: process.env.MASTER_KEY || '',
+      masterKey: process.env.TOKEN || '',
       openai: {
         apiBaseUrl: process.env.OPENAI_URL || 'https://api.openai.com/v1',
         keys: process.env.OPENAI_API_KEY ? [process.env.OPENAI_API_KEY] : [],
@@ -100,7 +106,7 @@ export function loadConfig(): ApiKeysConfig {
 
   // 默认配置
   cachedConfig = {
-    masterKey: '',
+    masterKey: process.env.TOKEN || '',
     openai: {
       apiBaseUrl: 'https://api.openai.com/v1',
       keys: [],
@@ -222,13 +228,6 @@ export function listUserApiKeys(): Omit<UserApiKey, 'key'>[] {
     expiresAt: k.expiresAt,
     isActive: k.isActive,
   }));
-}
-
-// 更新 master key
-export function updateMasterKey(newKey: string): void {
-  const config = loadConfig();
-  config.masterKey = newKey;
-  saveConfig(config);
 }
 
 // 添加 provider API key

@@ -4,7 +4,6 @@ import {
   createUserApiKey,
   deleteUserApiKey,
   listUserApiKeys,
-  updateMasterKey,
   verifyMasterKey,
   addProviderKey,
   removeProviderKey,
@@ -57,19 +56,6 @@ export async function POST(request: NextRequest) {
       }
       const success = deleteUserApiKey(key);
       return NextResponse.json({ success });
-    }
-
-    if (action === 'setMasterKey') {
-      // 设置 master key
-      // 如果已有 master key，需要验证
-      if (config.masterKey && config.masterKey !== masterKey) {
-        return NextResponse.json({ error: 'Invalid master key' }, { status: 401 });
-      }
-      if (!body.newMasterKey) {
-        return NextResponse.json({ error: 'New master key required' }, { status: 400 });
-      }
-      updateMasterKey(body.newMasterKey);
-      return NextResponse.json({ success: true });
     }
 
     if (action === 'addProviderKey') {
