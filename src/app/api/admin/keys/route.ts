@@ -4,7 +4,7 @@ import {
   createUserApiKey,
   deleteUserApiKey,
   listUserApiKeys,
-  verifyMasterKey,
+  verifytoken,
   addProviderKey,
   removeProviderKey,
   updateProviderBaseUrl,
@@ -14,11 +14,11 @@ import {
 } from '@/lib/config';
 
 export async function GET(request: NextRequest) {
-  const masterKey = request.headers.get('x-master-key');
+  const token = request.headers.get('x-master-key');
 
   // 验证 master key
   const config = loadConfig();
-  if (config.masterKey && config.masterKey !== masterKey) {
+  if (config.token && config.token !== token) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -28,11 +28,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const masterKey = request.headers.get('x-master-key');
+  const token = request.headers.get('x-master-key');
   const config = loadConfig();
 
   // 验证 master key
-  if (config.masterKey && config.masterKey !== masterKey) {
+  if (config.token && config.token !== token) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

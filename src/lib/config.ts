@@ -17,7 +17,7 @@ export interface UserApiKey {
 }
 
 export interface ApiKeysConfig {
-  masterKey: string;    // 管理密码
+  token: string;    // 管理密码
   openai: ProviderConfig;
   gemini: ProviderConfig;
   anthropic: ProviderConfig;
@@ -45,9 +45,9 @@ export function verifyApiKey(key: string, hashed: string): boolean {
 }
 
 // 验证 master key
-export function verifyMasterKey(key: string): boolean {
+export function verifytoken(key: string): boolean {
   const config = loadConfig();
-  return !!(config.masterKey && config.masterKey === key);
+  return !!(config.token && config.token === key);
 }
 
 let cachedConfig: ApiKeysConfig | null = null;
@@ -60,8 +60,8 @@ export function loadConfig(): ApiKeysConfig {
   // 支持环境变量覆盖
   if (process.env.API_KEYS_JSON) {
     const parsed = JSON.parse(process.env.API_KEYS_JSON) as ApiKeysConfig;
-    // masterKey 只从环境变量 TOKEN 读取，忽略配置文件中的值
-    parsed.masterKey = process.env.TOKEN || '';
+    // token 只从环境变量 TOKEN 读取，忽略配置文件中的值
+    parsed.token = process.env.TOKEN || '';
     cachedConfig = parsed;
     return cachedConfig;
   }
@@ -69,8 +69,8 @@ export function loadConfig(): ApiKeysConfig {
   if (fs.existsSync(CONFIG_PATH)) {
     const content = fs.readFileSync(CONFIG_PATH, 'utf-8');
     const parsed = JSON.parse(content) as ApiKeysConfig;
-    // masterKey 只从环境变量 TOKEN 读取，忽略配置文件中的值
-    parsed.masterKey = process.env.TOKEN || '';
+    // token 只从环境变量 TOKEN 读取，忽略配置文件中的值
+    parsed.token = process.env.TOKEN || '';
     cachedConfig = parsed;
     return cachedConfig;
   }
@@ -78,7 +78,7 @@ export function loadConfig(): ApiKeysConfig {
   // 支持单个环境变量
   if (process.env.GEMINI_API_KEY || process.env.NVIDIA_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY) {
     cachedConfig = {
-      masterKey: process.env.TOKEN || '',
+      token: process.env.TOKEN || '',
       openai: {
         apiBaseUrl: process.env.OPENAI_URL || 'https://api.openai.com/v1',
         keys: process.env.OPENAI_API_KEY ? [process.env.OPENAI_API_KEY] : [],
@@ -106,7 +106,7 @@ export function loadConfig(): ApiKeysConfig {
 
   // 默认配置
   cachedConfig = {
-    masterKey: process.env.TOKEN || '',
+    token: process.env.TOKEN || '',
     openai: {
       apiBaseUrl: 'https://api.openai.com/v1',
       keys: [],
@@ -166,7 +166,7 @@ export function validateUserApiKey(key: string): boolean {
   const config = loadConfig();
 
   // 如果没有设置 master key，则不验证
-  if (!config.masterKey) {
+  if (!config.token) {
     return true;
   }
 

@@ -37,7 +37,7 @@ const PROVIDERS: { name: string; key: 'openai' | 'gemini' | 'anthropic' | 'nvidi
 ];
 
 export default function AdminPage() {
-  const [masterKey, setMasterKey] = useState('');
+  const [token, settoken] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -61,11 +61,11 @@ export default function AdminPage() {
     if (isAuthenticated) {
       loadData();
     }
-  }, [isAuthenticated, masterKey]);
+  }, [isAuthenticated, token]);
 
   const loadData = async () => {
     const res = await fetch('/api/admin/keys', {
-      headers: { 'x-master-key': masterKey },
+      headers: { 'x-master-key': token },
     });
     if (res.ok) {
       const data = await res.json();
@@ -75,13 +75,13 @@ export default function AdminPage() {
   };
 
   const handleLogin = async () => {
-    if (!masterKey) {
+    if (!token) {
       setMessage('请输入 Master Key');
       return;
     }
 
     const res = await fetch('/api/admin/keys', {
-      headers: { 'x-master-key': masterKey },
+      headers: { 'x-master-key': token },
     });
 
     if (res.ok) {
@@ -113,7 +113,7 @@ export default function AdminPage() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-master-key': masterKey,
+        'x-master-key': token,
       },
       body: JSON.stringify({
         action: 'create',
@@ -145,7 +145,7 @@ export default function AdminPage() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-master-key': masterKey,
+        'x-master-key': token,
       },
       body: JSON.stringify({ action: 'delete', key }),
     });
@@ -166,7 +166,7 @@ export default function AdminPage() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-master-key': masterKey,
+        'x-master-key': token,
       },
       body: JSON.stringify({ action: 'addProviderKey', provider: providerKey, key }),
     });
@@ -187,7 +187,7 @@ export default function AdminPage() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-master-key': masterKey,
+        'x-master-key': token,
       },
       body: JSON.stringify({ action: 'removeProviderKey', provider: providerKey, key }),
     });
@@ -205,7 +205,7 @@ export default function AdminPage() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-master-key': masterKey,
+        'x-master-key': token,
       },
       body: JSON.stringify({ action: 'updateProviderBaseUrl', provider: providerKey, baseUrl: tempBaseUrl }),
     });
@@ -225,7 +225,7 @@ export default function AdminPage() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-master-key': masterKey,
+        'x-master-key': token,
       },
       body: JSON.stringify({ action: 'fetchModels', provider: providerKey }),
     });
@@ -265,8 +265,8 @@ export default function AdminPage() {
             <div style={{ display: 'flex', gap: 10 }}>
               <input
                 type="password"
-                value={masterKey}
-                onChange={(e) => setMasterKey(e.target.value)}
+                value={token}
+                onChange={(e) => settoken(e.target.value)}
                 placeholder="输入 Master Key"
                 style={{ flex: 1 }}
               />
