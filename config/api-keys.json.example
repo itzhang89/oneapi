@@ -1,0 +1,17 @@
+{
+  "gemini": {
+    "apiBaseUrl": "https://generativelanguage.googleapis.com/v1beta/models",
+    "keys": [
+      "YOUR_GEMINI_API_KEY_1",
+      "YOUR_GEMINI_API_KEY_2"
+    ],
+    "currentIndex": 0
+  },
+  "nvidia": {
+    "apiBaseUrl": "https://integrate.api.nvidia.com/v1",
+    "keys": [
+      "YOUR_NVIDIA_API_KEY"
+    ],
+    "currentIndex": 0
+  }
+}
