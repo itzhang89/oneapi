@@ -1,9 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { proxyRequest } from '@/lib/router';
 import { ChatCompletionRequest } from '@/lib/providers';
+import { validateUserApiKey } from '@/lib/config';
 
 export async function POST(request: NextRequest) {
   try {
+    // 验证 API key
+    const authHeader = request.headers.get('authorization');
+    const apiKey = authHeader?.replace('Bearer ', '');
+
+    if (!validateUserApiKey(apiKey || '')) {
+      return NextResponse.json(
+        { error: 'Invalid or expired API key' },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json() as ChatCompletionRequest;
 
     if (!body.model || !body.messages) {
