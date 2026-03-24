@@ -18,10 +18,14 @@ export interface UserApiKey {
 
 export interface ApiKeysConfig {
   masterKey: string;    // 管理密码
+  openai: ProviderConfig;
   gemini: ProviderConfig;
+  anthropic: ProviderConfig;
   nvidia: ProviderConfig;
   userKeys: UserApiKey[];
 }
+
+export type ProviderType = 'openai' | 'gemini' | 'anthropic' | 'nvidia';
 
 const CONFIG_PATH = path.join(process.cwd(), 'config', 'api-keys.json');
 
@@ -66,12 +70,22 @@ export function loadConfig(): ApiKeysConfig {
   }
 
   // 支持单个环境变量
-  if (process.env.GEMINI_API_KEY || process.env.NVIDIA_API_KEY) {
+  if (process.env.GEMINI_API_KEY || process.env.NVIDIA_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY) {
     cachedConfig = {
       masterKey: process.env.MASTER_KEY || '',
+      openai: {
+        apiBaseUrl: process.env.OPENAI_URL || 'https://api.openai.com/v1',
+        keys: process.env.OPENAI_API_KEY ? [process.env.OPENAI_API_KEY] : [],
+        currentIndex: 0,
+      },
       gemini: {
         apiBaseUrl: process.env.GEMINI_URL || 'https://generativelanguage.googleapis.com/v1beta/models',
         keys: process.env.GEMINI_API_KEY ? [process.env.GEMINI_API_KEY] : [],
+        currentIndex: 0,
+      },
+      anthropic: {
+        apiBaseUrl: process.env.ANTHROPIC_URL || 'https://api.anthropic.com/v1',
+        keys: process.env.ANTHROPIC_API_KEY ? [process.env.ANTHROPIC_API_KEY] : [],
         currentIndex: 0,
       },
       nvidia: {
@@ -87,8 +101,18 @@ export function loadConfig(): ApiKeysConfig {
   // 默认配置
   cachedConfig = {
     masterKey: '',
+    openai: {
+      apiBaseUrl: 'https://api.openai.com/v1',
+      keys: [],
+      currentIndex: 0,
+    },
     gemini: {
       apiBaseUrl: process.env.GEMINI_URL || 'https://generativelanguage.googleapis.com/v1beta/models',
+      keys: [],
+      currentIndex: 0,
+    },
+    anthropic: {
+      apiBaseUrl: 'https://api.anthropic.com/v1',
       keys: [],
       currentIndex: 0,
     },
@@ -113,7 +137,7 @@ export function saveConfig(config: ApiKeysConfig): void {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
 }
 
-export function getNextKey(provider: 'gemini' | 'nvidia'): { key: string; index: number } | null {
+export function getNextKey(provider: ProviderType): { key: string; index: number } | null {
   const config = loadConfig();
   const providerConfig = config[provider];
 
@@ -205,4 +229,122 @@ export function updateMasterKey(newKey: string): void {
   const config = loadConfig();
   config.masterKey = newKey;
   saveConfig(config);
+}
+
+// 添加 provider API key
+export function addProviderKey(provider: ProviderType, key: string): void {
+  const config = loadConfig();
+  if (!config[provider]) {
+    return;
+  }
+  if (!config[provider].keys.includes(key)) {
+    config[provider].keys.push(key);
+    saveConfig(config);
+  }
+}
+
+// 移除 provider API key
+export function removeProviderKey(provider: ProviderType, key: string): void {
+  const config = loadConfig();
+  if (!config[provider]) {
+    return;
+  }
+  const index = config[provider].keys.indexOf(key);
+  if (index !== -1) {
+    config[provider].keys.splice(index, 1);
+    saveConfig(config);
+  }
+}
+
+// 更新 provider API Base URL
+export function updateProviderBaseUrl(provider: ProviderType, baseUrl: string): void {
+  const config = loadConfig();
+  if (!config[provider]) {
+    return;
+  }
+  config[provider].apiBaseUrl = baseUrl;
+  saveConfig(config);
+}
+
+// 获取 provider 配置
+export function getProviderConfig(provider: ProviderType): ProviderConfig | null {
+  const config = loadConfig();
+  return config[provider] || null;
+}
+
+// 获取所有 provider 配置
+export function getAllProviderConfigs(): Record<ProviderType, ProviderConfig> {
+  const config = loadConfig();
+  return {
+    openai: config.openai,
+    gemini: config.gemini,
+    anthropic: config.anthropic,
+    nvidia: config.nvidia,
+  };
+}
+
+// Provider 模型信息
+export interface ProviderModels {
+  provider: ProviderType;
+  models: string[];
+  error?: string;
+}
+
+// 从各 provider 获取支持的模型列表
+export async function fetchProviderModels(provider: ProviderType): Promise<ProviderModels> {
+  const config = loadConfig();
+  const providerConfig = config[provider];
+
+  if (!providerConfig || providerConfig.keys.length === 0) {
+    return { provider, models: [], error: 'No API key configured' };
+  }
+
+  const apiKey = providerConfig.keys[0];
+  const baseUrl = providerConfig.apiBaseUrl;
+
+  try {
+    let models: string[] = [];
+
+    if (provider === 'openai') {
+      // OpenAI: GET /v1/models
+      const response = await fetch(`${baseUrl}/models`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+      });
+      if (!response.ok) {
+        return { provider, models: [], error: `HTTP ${response.status}` };
+      }
+      const data = await response.json();
+      models = data.data?.map((m: any) => m.id).filter((id: string) => !id.startsWith('gpt-4-')) || [];
+
+    } else if (provider === 'anthropic') {
+      // Anthropic: 模型列表（Anthropic 没有公开的 models list API，常用模型硬编码）
+      models = ['claude-3-5-sonnet-20241022', 'claude-3-5-sonnet-latest', 'claude-3-opus-latest', 'claude-3-sonnet-latest', 'claude-3-haiku-latest'];
+
+    } else if (provider === 'gemini') {
+      // Gemini: GET /v1/models
+      const response = await fetch(`${baseUrl}?key=${apiKey}`, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) {
+        return { provider, models: [], error: `HTTP ${response.status}` };
+      }
+      const data = await response.json();
+      models = data.models?.map((m: any) => m.name.replace('models/', '')).filter(Boolean) || [];
+
+    } else if (provider === 'nvidia') {
+      // NVIDIA: 获取可用模型
+      const response = await fetch(`${baseUrl}/models`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+      });
+      if (!response.ok) {
+        return { provider, models: [], error: `HTTP ${response.status}` };
+      }
+      const data = await response.json();
+      models = data.data?.map((m: any) => m.id) || [];
+    }
+
+    return { provider, models };
+  } catch (error: any) {
+    return { provider, models: [], error: error.message };
+  }
 }

@@ -6,6 +6,12 @@ import {
   listUserApiKeys,
   updateMasterKey,
   verifyMasterKey,
+  addProviderKey,
+  removeProviderKey,
+  updateProviderBaseUrl,
+  getAllProviderConfigs,
+  fetchProviderModels,
+  ProviderType,
 } from '@/lib/config';
 
 export async function GET(request: NextRequest) {
@@ -18,7 +24,8 @@ export async function GET(request: NextRequest) {
   }
 
   const keys = listUserApiKeys();
-  return NextResponse.json({ keys });
+  const providers = getAllProviderConfigs();
+  return NextResponse.json({ keys, providers });
 }
 
 export async function POST(request: NextRequest) {
@@ -63,6 +70,58 @@ export async function POST(request: NextRequest) {
       }
       updateMasterKey(body.newMasterKey);
       return NextResponse.json({ success: true });
+    }
+
+    if (action === 'addProviderKey') {
+      // 添加 provider API key
+      if (!body.provider || !body.key) {
+        return NextResponse.json({ error: 'Provider and key are required' }, { status: 400 });
+      }
+      const validProviders: ProviderType[] = ['openai', 'gemini', 'anthropic', 'nvidia'];
+      if (!validProviders.includes(body.provider)) {
+        return NextResponse.json({ error: 'Invalid provider' }, { status: 400 });
+      }
+      addProviderKey(body.provider, body.key);
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'removeProviderKey') {
+      // 移除 provider API key
+      if (!body.provider || !body.key) {
+        return NextResponse.json({ error: 'Provider and key are required' }, { status: 400 });
+      }
+      const validProviders: ProviderType[] = ['openai', 'gemini', 'anthropic', 'nvidia'];
+      if (!validProviders.includes(body.provider)) {
+        return NextResponse.json({ error: 'Invalid provider' }, { status: 400 });
+      }
+      removeProviderKey(body.provider, body.key);
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'updateProviderBaseUrl') {
+      // 更新 provider Base URL
+      if (!body.provider || !body.baseUrl) {
+        return NextResponse.json({ error: 'Provider and baseUrl are required' }, { status: 400 });
+      }
+      const validProviders: ProviderType[] = ['openai', 'gemini', 'anthropic', 'nvidia'];
+      if (!validProviders.includes(body.provider)) {
+        return NextResponse.json({ error: 'Invalid provider' }, { status: 400 });
+      }
+      updateProviderBaseUrl(body.provider, body.baseUrl);
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'fetchModels') {
+      // 获取 provider 支持的模型列表
+      if (!body.provider) {
+        return NextResponse.json({ error: 'Provider is required' }, { status: 400 });
+      }
+      const validProviders: ProviderType[] = ['openai', 'gemini', 'anthropic', 'nvidia'];
+      if (!validProviders.includes(body.provider)) {
+        return NextResponse.json({ error: 'Invalid provider' }, { status: 400 });
+      }
+      const result = await fetchProviderModels(body.provider);
+      return NextResponse.json(result);
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });

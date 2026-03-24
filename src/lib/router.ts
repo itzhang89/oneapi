@@ -1,11 +1,15 @@
-import { loadConfig, getNextKey } from './config';
+import { loadConfig, getNextKey, ProviderType } from './config';
 import {
   parseModel,
   ChatCompletionRequest,
   toGeminiRequest,
   toNvidiaRequest,
+  toOpenAIRequest,
+  toAnthropicRequest,
   fromGeminiResponse,
   fromGeminiStreamChunk,
+  fromAnthropicResponse,
+  fromAnthropicStreamChunk,
 } from './providers';
 
 export interface ProxyResult {
@@ -32,8 +36,16 @@ export async function proxyRequest(
   const config = loadConfig();
   const providerConfig = config[provider];
 
+  if (provider === 'openai') {
+    return proxyOpenAI(providerConfig.apiBaseUrl, actualModel, request, keyInfo.key);
+  }
+
   if (provider === 'gemini') {
     return proxyGemini(providerConfig.apiBaseUrl, actualModel, request, keyInfo.key);
+  }
+
+  if (provider === 'anthropic') {
+    return proxyAnthropic(providerConfig.apiBaseUrl, actualModel, request, keyInfo.key);
   }
 
   if (provider === 'nvidia') {
@@ -152,6 +164,121 @@ async function proxyNvidia(
 
     const data = await response.json();
     return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message, status: 500 };
+  }
+}
+
+async function proxyOpenAI(
+  baseUrl: string,
+  model: string,
+  request: ChatCompletionRequest,
+  apiKey: string
+): Promise<ProxyResult> {
+  const url = `${baseUrl}/chat/completions`;
+  const openaiRequest = toOpenAIRequest(model, request);
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(openaiRequest),
+      // @ts-ignore
+      signal: request.signal,
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      return { success: false, error, status: response.status };
+    }
+
+    if (request.stream) {
+      return {
+        success: true,
+        data: response.body,
+      };
+    }
+
+    const data = await response.json();
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message, status: 500 };
+  }
+}
+
+async function proxyAnthropic(
+  baseUrl: string,
+  model: string,
+  request: ChatCompletionRequest,
+  apiKey: string
+): Promise<ProxyResult> {
+  // Anthropic uses /v1/messages endpoint
+  const url = `${baseUrl}/messages`;
+  const anthropicRequest = toAnthropicRequest(model, request);
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify(anthropicRequest),
+      // @ts-ignore
+      signal: request.signal,
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      return { success: false, error, status: response.status };
+    }
+
+    if (request.stream) {
+      // Anthropic streaming
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const stream = new ReadableStream({
+        async start(controller) {
+          while (true) {
+            const { done, value } = await reader!.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              if (line.trim()) {
+                try {
+                  const chunk = JSON.parse(line);
+                  const transformed = fromAnthropicStreamChunk(chunk);
+                  if (transformed) {
+                    controller.enqueue(new TextEncoder().encode(transformed));
+                  }
+                } catch {}
+              }
+            }
+          }
+          controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+        },
+      });
+
+      return {
+        success: true,
+        data: new Response(stream, {
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      };
+    }
+
+    const data = await response.json();
+    return { success: true, data: fromAnthropicResponse(data) };
   } catch (error: any) {
     return { success: false, error: error.message, status: 500 };
   }

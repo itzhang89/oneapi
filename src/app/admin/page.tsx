@@ -10,9 +10,36 @@ interface UserApiKey {
   isActive: boolean;
 }
 
+interface ProviderConfig {
+  apiBaseUrl: string;
+  keys: string[];
+  currentIndex: number;
+}
+
+interface ProviderModels {
+  provider: string;
+  models: string[];
+  error?: string;
+}
+
+interface ProvidersConfig {
+  openai: ProviderConfig;
+  gemini: ProviderConfig;
+  anthropic: ProviderConfig;
+  nvidia: ProviderConfig;
+}
+
+const STORAGE_KEY = 'llm-proxy-master-key';
+
+const PROVIDERS: { name: string; key: 'openai' | 'gemini' | 'anthropic' | 'nvidia'; prefix: string; defaultUrl: string }[] = [
+  { name: 'OpenAI', key: 'openai', prefix: 'openai-', defaultUrl: 'https://api.openai.com/v1' },
+  { name: 'Gemini', key: 'gemini', prefix: 'gemini-', defaultUrl: 'https://generativelanguage.googleapis.com/v1beta/models' },
+  { name: 'Anthropic', key: 'anthropic', prefix: 'anthropic-', defaultUrl: 'https://api.anthropic.com/v1' },
+  { name: 'NVIDIA', key: 'nvidia', prefix: '', defaultUrl: 'https://integrate.api.nvidia.com/v1' },
+];
+
 export default function AdminPage() {
   const [masterKey, setMasterKey] = useState('');
-  const [newMasterKey, setNewMasterKey] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -23,14 +50,37 @@ export default function AdminPage() {
   const [newKeyExpiry, setNewKeyExpiry] = useState('');
   const [createdKey, setCreatedKey] = useState<string | null>(null);
 
-  // Load user keys
-  const loadUserKeys = async () => {
+  // Providers
+  const [providers, setProviders] = useState<ProvidersConfig | null>(null);
+  const [newProviderKeys, setNewProviderKeys] = useState<Record<string, string>>({});
+  const [editingBaseUrl, setEditingBaseUrl] = useState<string | null>(null);
+  const [tempBaseUrl, setTempBaseUrl] = useState('');
+  const [providerModels, setProviderModels] = useState<Record<string, ProviderModels>>({});
+  const [fetchingModels, setFetchingModels] = useState<string | null>(null);
+
+  // Load master key from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      setMasterKey(saved);
+    }
+  }, []);
+
+  // Load data after authentication
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadData();
+    }
+  }, [isAuthenticated, masterKey]);
+
+  const loadData = async () => {
     const res = await fetch('/api/admin/keys', {
       headers: { 'x-master-key': masterKey },
     });
     if (res.ok) {
       const data = await res.json();
       setUserKeys(data.keys || []);
+      setProviders(data.providers || null);
     }
   };
 
@@ -45,12 +95,56 @@ export default function AdminPage() {
     });
 
     if (res.ok) {
+      localStorage.setItem(STORAGE_KEY, masterKey);
       setIsAuthenticated(true);
       const data = await res.json();
       setUserKeys(data.keys || []);
+      setProviders(data.providers || null);
       setMessage('');
     } else {
       setMessage('Master Key 无效');
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setUserKeys([]);
+    setProviders(null);
+  };
+
+  const handleGenerateMasterKey = () => {
+    const newKey = 'mk-' + Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+    setMasterKey(newKey);
+    localStorage.setItem(STORAGE_KEY, newKey);
+    navigator.clipboard.writeText(newKey).catch(() => {});
+    setMessage('新 Master Key 已生成并复制到剪贴板！');
+  };
+
+  const handleSaveMasterKey = async () => {
+    if (!masterKey) {
+      setMessage('请输入 Master Key');
+      return;
+    }
+
+    const res = await fetch('/api/admin/keys', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-master-key': masterKey,
+      },
+      body: JSON.stringify({
+        action: 'setMasterKey',
+        newMasterKey: masterKey,
+      }),
+    });
+
+    if (res.ok) {
+      localStorage.setItem(STORAGE_KEY, masterKey);
+      navigator.clipboard.writeText(masterKey).catch(() => {});
+      setMessage('Master Key 已保存并复制到剪贴板！');
+    } else {
+      setMessage('保存失败');
     }
   };
 
@@ -77,11 +171,15 @@ export default function AdminPage() {
 
     if (res.ok) {
       const data = await res.json();
-      setCreatedKey(data.key?.key);
+      const newKey = data.key?.key;
+      if (newKey) {
+        await navigator.clipboard.writeText(newKey);
+        setCreatedKey(newKey);
+        setMessage('API Key 已创建并复制到剪贴板！');
+      }
       setNewKeyName('');
       setNewKeyExpiry('');
-      await loadUserKeys();
-      setMessage('API Key 创建成功！请妥善保管，只显示一次');
+      await loadData();
     } else {
       setMessage('创建失败');
     }
@@ -100,18 +198,16 @@ export default function AdminPage() {
     });
 
     if (res.ok) {
-      await loadUserKeys();
+      await loadData();
       setMessage('已删除');
     } else {
       setMessage('删除失败');
     }
   };
 
-  const handleSetMasterKey = async () => {
-    if (!newMasterKey) {
-      setMessage('请输入新 Master Key');
-      return;
-    }
+  const handleAddProviderKey = async (providerKey: string) => {
+    const key = newProviderKeys[providerKey];
+    if (!key) return;
 
     const res = await fetch('/api/admin/keys', {
       method: 'POST',
@@ -119,19 +215,80 @@ export default function AdminPage() {
         'Content-Type': 'application/json',
         'x-master-key': masterKey,
       },
-      body: JSON.stringify({
-        action: 'setMasterKey',
-        newMasterKey,
-      }),
+      body: JSON.stringify({ action: 'addProviderKey', provider: providerKey, key }),
     });
 
     if (res.ok) {
-      setMasterKey(newMasterKey);
-      setNewMasterKey('');
-      setMessage('Master Key 已更新');
+      setNewProviderKeys(prev => ({ ...prev, [providerKey]: '' }));
+      await loadData();
+      setMessage(`${providerKey} API Key 已添加`);
+    } else {
+      setMessage('添加失败');
+    }
+  };
+
+  const handleRemoveProviderKey = async (providerKey: string, key: string) => {
+    if (!confirm('确定要删除这个 API Key 吗？')) return;
+
+    const res = await fetch('/api/admin/keys', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-master-key': masterKey,
+      },
+      body: JSON.stringify({ action: 'removeProviderKey', provider: providerKey, key }),
+    });
+
+    if (res.ok) {
+      await loadData();
+      setMessage('已删除');
+    } else {
+      setMessage('删除失败');
+    }
+  };
+
+  const handleUpdateBaseUrl = async (providerKey: string) => {
+    const res = await fetch('/api/admin/keys', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-master-key': masterKey,
+      },
+      body: JSON.stringify({ action: 'updateProviderBaseUrl', provider: providerKey, baseUrl: tempBaseUrl }),
+    });
+
+    if (res.ok) {
+      setEditingBaseUrl(null);
+      await loadData();
+      setMessage('Base URL 已更新');
     } else {
       setMessage('更新失败');
     }
+  };
+
+  const handleFetchModels = async (providerKey: string) => {
+    setFetchingModels(providerKey);
+    const res = await fetch('/api/admin/keys', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-master-key': masterKey,
+      },
+      body: JSON.stringify({ action: 'fetchModels', provider: providerKey }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      setProviderModels(prev => ({ ...prev, [providerKey]: data }));
+    } else {
+      setProviderModels(prev => ({ ...prev, [providerKey]: { provider: providerKey, models: [], error: 'Failed to fetch' } }));
+    }
+    setFetchingModels(null);
+  };
+
+  const startEditBaseUrl = (providerKey: string, currentUrl: string) => {
+    setEditingBaseUrl(providerKey);
+    setTempBaseUrl(currentUrl);
   };
 
   const formatExpiry = (timestamp: number | null) => {
@@ -152,16 +309,24 @@ export default function AdminPage() {
           <h2>LLM Proxy 管理</h2>
           <div className="form-group">
             <label>Master Key</label>
-            <input
-              type="password"
-              value={masterKey}
-              onChange={(e) => setMasterKey(e.target.value)}
-              placeholder="输入 Master Key"
-            />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <input
+                type="password"
+                value={masterKey}
+                onChange={(e) => setMasterKey(e.target.value)}
+                placeholder="输入 Master Key"
+                style={{ flex: 1 }}
+              />
+            </div>
           </div>
-          <button className="btn btn-primary" onClick={handleLogin}>
-            登录
-          </button>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="btn btn-primary" onClick={handleLogin}>
+              登录
+            </button>
+            <button className="btn" onClick={handleGenerateMasterKey}>
+              生成随机 Key
+            </button>
+          </div>
           {message && (
             <div style={{ marginTop: 10, color: 'red' }}>{message}</div>
           )}
@@ -174,7 +339,7 @@ export default function AdminPage() {
     <div className="container">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h1>LLM Proxy 管理</h1>
-        <button className="btn btn-small" onClick={() => setIsAuthenticated(false)}>
+        <button className="btn btn-small" onClick={handleLogout}>
           退出
         </button>
       </div>
@@ -182,21 +347,113 @@ export default function AdminPage() {
       {/* Master Key Management */}
       <div className="card">
         <h2>Master Key 设置</h2>
-        <div className="form-group">
-          <label>设置新 Master Key</label>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <input
-              type="password"
-              value={newMasterKey}
-              onChange={(e) => setNewMasterKey(e.target.value)}
-              placeholder="新 Master Key（留空则不修改）"
-              style={{ flex: 1 }}
-            />
-            <button className="btn btn-primary" onClick={handleSetMasterKey}>
-              保存
-            </button>
-          </div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <input
+            type="password"
+            value={masterKey}
+            onChange={(e) => setMasterKey(e.target.value)}
+            placeholder="Master Key"
+            style={{ flex: 1 }}
+          />
+          <button className="btn btn-primary" onClick={handleSaveMasterKey}>
+            保存并复制
+          </button>
+          <button className="btn" onClick={handleGenerateMasterKey}>
+            生成随机
+          </button>
         </div>
+      </div>
+
+      {/* Provider Keys Management */}
+      <div className="card">
+        <h2>LLM Provider 配置</h2>
+        {providers && PROVIDERS.map(provider => (
+          <div key={provider.key} style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #eee' }}>
+            <h3 style={{ marginBottom: 10 }}>{provider.name}</h3>
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: 12, color: '#666' }}>API Base URL</label>
+              {editingBaseUrl === provider.key ? (
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <input
+                    type="text"
+                    value={tempBaseUrl}
+                    onChange={(e) => setTempBaseUrl(e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <button className="btn btn-small btn-primary" onClick={() => handleUpdateBaseUrl(provider.key)}>保存</button>
+                  <button className="btn btn-small" onClick={() => setEditingBaseUrl(null)}>取消</button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <code style={{ flex: 1, padding: '5px 10px', background: '#f5f5f5', borderRadius: 4, fontSize: 12 }}>
+                    {providers[provider.key]?.apiBaseUrl || provider.defaultUrl}
+                  </code>
+                  <button className="btn btn-small" onClick={() => startEditBaseUrl(provider.key, providers[provider.key]?.apiBaseUrl || provider.defaultUrl)}>
+                    编辑
+                  </button>
+                </div>
+              )}
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: 12, color: '#666' }}>API Keys</label>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <input
+                  type="password"
+                  value={newProviderKeys[provider.key] || ''}
+                  onChange={(e) => setNewProviderKeys(prev => ({ ...prev, [provider.key]: e.target.value }))}
+                  placeholder="输入新 Key"
+                  style={{ flex: 1 }}
+                />
+                <button className="btn btn-small" onClick={() => handleAddProviderKey(provider.key)}>
+                  添加
+                </button>
+              </div>
+            </div>
+            <div style={{ fontSize: 12 }}>
+              {providers[provider.key]?.keys?.length > 0 ? (
+                providers[provider.key].keys.map((k, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px dashed #eee' }}>
+                    <code style={{ opacity: 0.7 }}>{k.slice(0, 8)}...{k.slice(-4)}</code>
+                    <button className="btn btn-danger btn-small" onClick={() => handleRemoveProviderKey(provider.key, k)}>
+                      删除
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <span style={{ color: '#999' }}>暂无 Keys</span>
+              )}
+            </div>
+            {/* Available Models */}
+            <div style={{ marginTop: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5 }}>
+                <label style={{ fontSize: 12, color: '#666' }}>支持的模型</label>
+                <button
+                  className="btn btn-small"
+                  onClick={() => handleFetchModels(provider.key)}
+                  disabled={fetchingModels === provider.key || providers[provider.key]?.keys?.length === 0}
+                >
+                  {fetchingModels === provider.key ? '加载中...' : '刷新模型列表'}
+                </button>
+              </div>
+              {providerModels[provider.key]?.error ? (
+                <span style={{ color: 'red', fontSize: 11 }}>{providerModels[provider.key].error}</span>
+              ) : providerModels[provider.key]?.models?.length > 0 ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                  {providerModels[provider.key].models.slice(0, 20).map((model, i) => (
+                    <code key={i} style={{ fontSize: 10, padding: '2px 6px', background: '#e8f4fd', borderRadius: 3 }}>
+                      {model}
+                    </code>
+                  ))}
+                  {providerModels[provider.key].models.length > 20 && (
+                    <span style={{ fontSize: 10, color: '#666' }}>...等 {providerModels[provider.key].models.length} 个模型</span>
+                  )}
+                </div>
+              ) : (
+                <span style={{ color: '#999', fontSize: 11 }}>点击"刷新模型列表"获取可用模型</span>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Create User API Key */}
@@ -204,7 +461,7 @@ export default function AdminPage() {
         <h2>创建用户 API Key</h2>
         {createdKey && (
           <div style={{ background: '#d4edda', padding: 10, borderRadius: 4, marginBottom: 15 }}>
-            <strong>新 API Key（只显示一次）：</strong>
+            <strong>新 API Key（已复制到剪贴板）：</strong>
             <code style={{ display: 'block', marginTop: 5, wordBreak: 'break-all' }}>
               {createdKey}
             </code>
@@ -274,21 +531,26 @@ export default function AdminPage() {
       <div className="card" style={{ marginTop: 20 }}>
         <h2>使用说明</h2>
         <p style={{ fontSize: 14, color: '#666' }}>
-          1. 创建用户 API Key 后，用户可以使用该 key 访问代理<br />
-          2. 请求时在 Header 中设置: <code>Authorization: Bearer {`{api_key}`}</code><br />
-          3. 请求示例:
+          1. 配置各 Provider 的 API Keys（支持多个 Key 轮询）<br />
+          2. 创建用户 API Key 后，用户可以使用该 key 访问代理<br />
+          3. 请求时在 Header 中设置: <code>Authorization: Bearer {`{api_key}`}</code><br />
+          4. 请求示例:
           <pre style={{ background: '#f5f5f5', padding: 10, borderRadius: 4, marginTop: 5 }}>
 {`curl -X POST https://your-domain/v1/chat/completions \\
   -H "Authorization: Bearer sk-xxx" \\
   -H "Content-Type: application/json" \\
   -d '{"model":"gemini-3-flash-preview","messages":[{"role":"user","content":"hi"}]}'`}
           </pre>
-          4. 模型路由: <code>gemini-*</code> → Gemini, 其他 → NVIDIA
+          5. 模型路由:<br />
+          &nbsp;&nbsp;<code>openai-*</code> → OpenAI<br />
+          &nbsp;&nbsp;<code>gemini-*</code> → Gemini<br />
+          &nbsp;&nbsp;<code>anthropic-*</code> → Anthropic<br />
+          &nbsp;&nbsp;其他 → NVIDIA (fallback)
         </p>
       </div>
 
       {message && (
-        <div style={{ marginTop: 10, color: message.includes('成功') ? 'green' : 'red' }}>
+        <div style={{ marginTop: 10, color: message.includes('成功') || message.includes('已复制') ? 'green' : 'red' }}>
           {message}
         </div>
       )}
