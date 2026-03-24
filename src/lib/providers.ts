@@ -75,10 +75,12 @@ export function fromGeminiStreamChunk(chunk: any): string {
   })}\n\n`;
 }
 
-// NVIDIA API 转换 (直接透传)
+// NVIDIA API 转换 (移除 nvidia/ 前缀)
 export function toNvidiaRequest(model: string, request: ChatCompletionRequest) {
+  // 移除 nvidia/ 前缀获取实际模型名
+  const actualModel = model.startsWith('nvidia/') ? model.slice(7) : model;
   return {
-    model: model,
+    model: actualModel,
     messages: request.messages,
     stream: request.stream ?? false,
     temperature: request.temperature ?? 0.9,
@@ -101,19 +103,14 @@ export function fromNvidiaStreamChunk(line: string): string {
 }
 
 // 解析 model 字符串，返回 provider 和处理后的 model 名
-export function parseModel(model: string): { provider: 'gemini' | 'nvidia' | null; actualModel: string } {
-  // NVIDIA 模型 (nvidia/*)
-  if (model.startsWith('nvidia/')) {
-    return { provider: 'nvidia', actualModel: model };
-  }
-
-  // Gemini 模型 (gemini-* 或 models/gemini-*)
+export function parseModel(model: string): { provider: 'gemini' | 'nvidia'; actualModel: string } {
+  // Gemini 模型 (gemini-*)
   if (model.startsWith('gemini-') || model.startsWith('models/gemini-')) {
-    // 直接透传，移除 models/ 前缀
+    // 移除 models/ 前缀
     const actualModel = model.replace('models/', '');
     return { provider: 'gemini', actualModel };
   }
 
-  // 默认归为 gemini (假设用户直接传 gemini 模型名)
-  return { provider: 'gemini', actualModel: model };
+  // 其他所有模型默认走 NVIDIA (作为 fallback)
+  return { provider: 'nvidia', actualModel: model };
 }
