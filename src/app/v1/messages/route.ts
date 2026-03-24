@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { routeRequest } from '@/lib/routing';
-import { validateUserApiKey, loadConfig, findProviderByKey } from '@/lib/config';
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,18 +14,12 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-
-    if (!body.model || !body.messages) {
-      return NextResponse.json(
-        { error: 'Missing model or messages' },
-        { status: 400 }
-      );
-    }
+    const path = '/v1/messages';
 
     const result = await routeRequest({
       apiKey,
       method: 'POST',
-      path: '/v1/chat/completions',
+      path,
       body,
       headers: Object.fromEntries(request.headers.entries()),
     });
@@ -64,7 +57,7 @@ export async function OPTIONS() {
     headers: {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, anthropic-version',
     },
   });
 }

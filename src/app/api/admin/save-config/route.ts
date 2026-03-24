@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { saveConfig, ApiKeysConfig } from '@/lib/config';
+import { saveConfig, AppConfig } from '@/lib/config';
 
 export async function POST(request: NextRequest) {
   try {
-    const config = await request.json() as ApiKeysConfig;
+    const config = await request.json() as AppConfig;
 
-    // 验证配置结构
-    if (!config.gemini || !config.nvidia) {
+    // Validate config structure
+    if (!config.providers) {
       return NextResponse.json(
         { error: 'Invalid config structure' },
         { status: 400 }

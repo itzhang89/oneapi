@@ -173,10 +173,10 @@ export function fromAnthropicStreamChunk(chunk: any): string {
   })}\n\n`;
 }
 
-import { ProviderType } from './config';
+import { ProtocolType } from './config';
 
 // 解析 model 字符串，返回 provider 和处理后的 model 名
-export function parseModel(model: string): { provider: ProviderType; actualModel: string } {
+export function parseModel(model: string): { provider: ProtocolType; actualModel: string } {
   // OpenAI 模型 (openai-*)
   if (model.startsWith('openai-')) {
     const actualModel = model.replace('openai-', '');

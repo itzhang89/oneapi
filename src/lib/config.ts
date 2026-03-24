@@ -2,34 +2,36 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
-export interface ProviderConfig {
-  apiBaseUrl: string;
-  keys: string[];
-  currentIndex: number;
+export type ProtocolType = 'openai' | 'gemini' | 'anthropic' | 'nvidia' | 'custom';
+
+export interface Provider {
+  id: string;                    // unique identifier
+  name: string;                  // display name
+  baseUrl: string;               // API base URL
+  apiKeys: string[];             // provider's API keys
+  protocolType: ProtocolType;    // protocol type
+  supportedModels: string[];     // cached model list
+  lastFetchedAt: number | null;  // timestamp of last model refresh
 }
 
 export interface UserApiKey {
-  key: string;          // API key (hashed stored)
-  name: string;         // 名称
-  createdAt: number;    // 创建时间
-  expiresAt: number | null;  // 过期时间 null=永不过期
+  key: string;                   // hashed API key
+  name: string;
+  allowedModels: string[];       // empty = allow all
+  createdAt: number;
+  expiresAt: number | null;
   isActive: boolean;
 }
 
-export interface ApiKeysConfig {
-  token: string;    // 管理密码
-  openai: ProviderConfig;
-  gemini: ProviderConfig;
-  anthropic: ProviderConfig;
-  nvidia: ProviderConfig;
+export interface AppConfig {
+  token: string;
+  providers: Record<string, Provider>;
   userKeys: UserApiKey[];
 }
 
-export type ProviderType = 'openai' | 'gemini' | 'anthropic' | 'nvidia';
-
 const CONFIG_PATH = path.join(process.cwd(), 'config', 'api-keys.json');
 
-// 生成随机 API key
+// Generate random API key
 export function generateApiKey(): string {
   return 'sk-' + crypto.randomBytes(24).toString('hex');
 }
@@ -39,100 +41,147 @@ export function hashApiKey(key: string): string {
   return crypto.createHash('sha256').update(key).digest('hex');
 }
 
-// 验证 API key
+// Verify API key
 export function verifyApiKey(key: string, hashed: string): boolean {
   return hashApiKey(key) === hashed;
 }
 
-// 验证 token
-export function verifytoken(key: string): boolean {
+// Verify admin token
+export function verifyToken(token: string): boolean {
   const config = loadConfig();
-  return !!(config.token && config.token === key);
+  return !!(config.token && config.token === token);
 }
 
-let cachedConfig: ApiKeysConfig | null = null;
+// Find which provider owns this API key
+export function findProviderByKey(apiKey: string): Provider | null {
+  const config = loadConfig();
+  for (const provider of Object.values(config.providers)) {
+    if (provider.apiKeys.includes(apiKey)) {
+      return provider;
+    }
+  }
+  return null;
+}
 
-export function loadConfig(): ApiKeysConfig {
+// Validate user API key
+export function validateUserApiKey(key: string): { valid: boolean; allowedModels: string[] | null } {
+  const config = loadConfig();
+  const hashedKey = hashApiKey(key);
+  const now = Date.now();
+
+  for (const userKey of config.userKeys) {
+    if (!userKey.isActive) continue;
+    if (userKey.expiresAt && userKey.expiresAt < now) continue;
+    if (userKey.key !== hashedKey) continue;
+    return { valid: true, allowedModels: userKey.allowedModels };
+  }
+
+  return { valid: false, allowedModels: null };
+}
+
+let cachedConfig: AppConfig | null = null;
+
+export function loadConfig(): AppConfig {
   if (cachedConfig) {
     return cachedConfig;
   }
 
-  // 支持环境变量覆盖
+  // Support env var override
   if (process.env.API_KEYS_JSON) {
-    const parsed = JSON.parse(process.env.API_KEYS_JSON) as ApiKeysConfig;
-    // token 只从环境变量 TOKEN 读取，忽略配置文件中的值
-    parsed.token = process.env.TOKEN || '';
-    cachedConfig = parsed;
+    const parsed = JSON.parse(process.env.API_KEYS_JSON) as AppConfig;
+    parsed.token = process.env.TOKEN || parsed.token || '';
+    cachedConfig = normalizeConfig(parsed);
     return cachedConfig;
   }
 
   if (fs.existsSync(CONFIG_PATH)) {
     const content = fs.readFileSync(CONFIG_PATH, 'utf-8');
-    const parsed = JSON.parse(content) as ApiKeysConfig;
-    // token 只从环境变量 TOKEN 读取，忽略配置文件中的值
-    parsed.token = process.env.TOKEN || '';
-    cachedConfig = parsed;
+    const parsed = JSON.parse(content) as AppConfig;
+    parsed.token = process.env.TOKEN || parsed.token || '';
+    cachedConfig = normalizeConfig(parsed);
     return cachedConfig;
   }
 
-  // 支持单个环境变量
-  if (process.env.GEMINI_API_KEY || process.env.NVIDIA_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY) {
-    cachedConfig = {
-      token: process.env.TOKEN || '',
-      openai: {
-        apiBaseUrl: process.env.OPENAI_URL || 'https://api.openai.com/v1',
-        keys: process.env.OPENAI_API_KEY ? [process.env.OPENAI_API_KEY] : [],
-        currentIndex: 0,
-      },
-      gemini: {
-        apiBaseUrl: process.env.GEMINI_URL || 'https://generativelanguage.googleapis.com/v1beta/models',
-        keys: process.env.GEMINI_API_KEY ? [process.env.GEMINI_API_KEY] : [],
-        currentIndex: 0,
-      },
-      anthropic: {
-        apiBaseUrl: process.env.ANTHROPIC_URL || 'https://api.anthropic.com/v1',
-        keys: process.env.ANTHROPIC_API_KEY ? [process.env.ANTHROPIC_API_KEY] : [],
-        currentIndex: 0,
-      },
-      nvidia: {
-        apiBaseUrl: process.env.NVIDIA_URL || 'https://integrate.api.nvidia.com/v1',
-        keys: process.env.NVIDIA_API_KEY ? [process.env.NVIDIA_API_KEY] : [],
-        currentIndex: 0,
-      },
-      userKeys: [],
-    };
-    return cachedConfig!;
-  }
-
-  // 默认配置
-  cachedConfig = {
-    token: process.env.TOKEN || '',
-    openai: {
-      apiBaseUrl: 'https://api.openai.com/v1',
-      keys: [],
-      currentIndex: 0,
-    },
-    gemini: {
-      apiBaseUrl: process.env.GEMINI_URL || 'https://generativelanguage.googleapis.com/v1beta/models',
-      keys: [],
-      currentIndex: 0,
-    },
-    anthropic: {
-      apiBaseUrl: 'https://api.anthropic.com/v1',
-      keys: [],
-      currentIndex: 0,
-    },
-    nvidia: {
-      apiBaseUrl: process.env.NVIDIA_URL || 'https://integrate.api.nvidia.com/v1',
-      keys: [],
-      currentIndex: 0,
-    },
-    userKeys: [],
-  };
+  // Build from individual env vars (legacy support)
+  cachedConfig = buildConfigFromEnvVars();
   return cachedConfig;
 }
 
-export function saveConfig(config: ApiKeysConfig): void {
+// Normalize config to ensure all fields exist
+function normalizeConfig(config: AppConfig): AppConfig {
+  if (!config.providers) {
+    config.providers = {};
+  }
+  if (!config.userKeys) {
+    config.userKeys = [];
+  }
+  return config;
+}
+
+// Build config from individual env vars (backward compatible)
+function buildConfigFromEnvVars(): AppConfig {
+  const config: AppConfig = {
+    token: process.env.TOKEN || '',
+    providers: {},
+    userKeys: [],
+  };
+
+  // OpenAI
+  if (process.env.OPENAI_API_KEY || process.env.OPENAI_URL) {
+    config.providers.openai = {
+      id: 'openai',
+      name: 'OpenAI',
+      baseUrl: process.env.OPENAI_URL || 'https://api.openai.com/v1',
+      apiKeys: process.env.OPENAI_API_KEY ? [process.env.OPENAI_API_KEY] : [],
+      protocolType: 'openai',
+      supportedModels: [],
+      lastFetchedAt: null,
+    };
+  }
+
+  // Gemini
+  if (process.env.GEMINI_API_KEY || process.env.GEMINI_URL) {
+    config.providers.gemini = {
+      id: 'gemini',
+      name: 'Google Gemini',
+      baseUrl: process.env.GEMINI_URL || 'https://generativelanguage.googleapis.com/v1beta/models',
+      apiKeys: process.env.GEMINI_API_KEY ? [process.env.GEMINI_API_KEY] : [],
+      protocolType: 'gemini',
+      supportedModels: [],
+      lastFetchedAt: null,
+    };
+  }
+
+  // Anthropic
+  if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_URL) {
+    config.providers.anthropic = {
+      id: 'anthropic',
+      name: 'Anthropic',
+      baseUrl: process.env.ANTHROPIC_URL || 'https://api.anthropic.com/v1',
+      apiKeys: process.env.ANTHROPIC_API_KEY ? [process.env.ANTHROPIC_API_KEY] : [],
+      protocolType: 'anthropic',
+      supportedModels: [],
+      lastFetchedAt: null,
+    };
+  }
+
+  // NVIDIA
+  if (process.env.NVIDIA_API_KEY || process.env.NVIDIA_URL) {
+    config.providers.nvidia = {
+      id: 'nvidia',
+      name: 'NVIDIA',
+      baseUrl: process.env.NVIDIA_URL || 'https://integrate.api.nvidia.com/v1',
+      apiKeys: process.env.NVIDIA_API_KEY ? [process.env.NVIDIA_API_KEY] : [],
+      protocolType: 'nvidia',
+      supportedModels: [],
+      lastFetchedAt: null,
+    };
+  }
+
+  return config;
+}
+
+export function saveConfig(config: AppConfig): void {
   cachedConfig = config;
 
   const configDir = path.dirname(CONFIG_PATH);
@@ -143,57 +192,132 @@ export function saveConfig(config: ApiKeysConfig): void {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
 }
 
-export function getNextKey(provider: ProviderType): { key: string; index: number } | null {
+// Get next API key for a provider (round-robin)
+export function getNextKeyForProvider(providerId: string): string | null {
   const config = loadConfig();
-  const providerConfig = config[provider];
+  const provider = config.providers[providerId];
 
-  if (!providerConfig || providerConfig.keys.length === 0) {
+  if (!provider || provider.apiKeys.length === 0) {
     return null;
   }
 
-  const currentIndex = providerConfig.currentIndex;
-  const key = providerConfig.keys[currentIndex];
-
-  // 轮询到下一个
-  providerConfig.currentIndex = (currentIndex + 1) % providerConfig.keys.length;
-  saveConfig(config);
-
-  return { key, index: currentIndex };
+  // Simple round-robin - for each provider, track current index
+  // For now, just return the first key
+  return provider.apiKeys[0];
 }
 
-// 验证用户 API key
-export function validateUserApiKey(key: string): boolean {
+// Find provider that supports a model
+export function findProviderForModel(model: string, allowedModels: string[] | null): Provider | null {
   const config = loadConfig();
 
-  // 如果没有设置 token，则不验证
-  if (!config.token) {
-    return true;
+  // If allowedModels is specified, only consider those
+  for (const provider of Object.values(config.providers)) {
+    if (provider.apiKeys.length === 0) continue;
+
+    const models = provider.supportedModels;
+    if (models.length === 0) {
+      // If provider has no cached models, allow routing to it (when user has no restrictions)
+      if (!allowedModels || allowedModels.length === 0) {
+        return provider;
+      }
+      continue;
+    }
+
+    // Check if model matches this provider's supported models
+    const modelMatches = models.some(m =>
+      model.toLowerCase().includes(m.toLowerCase()) ||
+      m.toLowerCase().includes(model.toLowerCase())
+    );
+
+    if (modelMatches) {
+      // Check if model is allowed for this user
+      if (!allowedModels || allowedModels.length === 0 || allowedModels.includes(model)) {
+        return provider;
+      }
+    }
   }
 
-  const hashedKey = hashApiKey(key);
-  const now = Date.now();
-
-  return config.userKeys.some(userKey => {
-    if (!userKey.isActive) return false;
-    if (userKey.expiresAt && userKey.expiresAt < now) return false;
-    return userKey.key === hashedKey;
-  });
+  return null;
 }
 
-// 创建用户 API key
-export function createUserApiKey(name: string, expiresInDays: number | null): UserApiKey {
+// === Provider CRUD ===
+
+export function createProvider(provider: Omit<Provider, 'supportedModels' | 'lastFetchedAt'>): Provider {
+  const config = loadConfig();
+  const newProvider: Provider = {
+    ...provider,
+    supportedModels: [],
+    lastFetchedAt: null,
+  };
+  config.providers[provider.id] = newProvider;
+  saveConfig(config);
+  return newProvider;
+}
+
+export function updateProvider(id: string, updates: Partial<Provider>): Provider | null {
+  const config = loadConfig();
+  if (!config.providers[id]) return null;
+
+  config.providers[id] = { ...config.providers[id], ...updates };
+  saveConfig(config);
+  return config.providers[id];
+}
+
+export function deleteProvider(id: string): boolean {
+  const config = loadConfig();
+  if (!config.providers[id]) return false;
+  delete config.providers[id];
+  saveConfig(config);
+  return true;
+}
+
+export function getProvider(id: string): Provider | null {
+  const config = loadConfig();
+  return config.providers[id] || null;
+}
+
+export function listProviders(): Record<string, Provider> {
+  const config = loadConfig();
+  return { ...config.providers };
+}
+
+// === Provider API Key Management ===
+
+export function addProviderKey(providerId: string, key: string): boolean {
+  const config = loadConfig();
+  const provider = config.providers[providerId];
+  if (!provider) return false;
+  if (!provider.apiKeys.includes(key)) {
+    provider.apiKeys.push(key);
+    saveConfig(config);
+  }
+  return true;
+}
+
+export function removeProviderKey(providerId: string, key: string): boolean {
+  const config = loadConfig();
+  const provider = config.providers[providerId];
+  if (!provider) return false;
+  const index = provider.apiKeys.indexOf(key);
+  if (index !== -1) {
+    provider.apiKeys.splice(index, 1);
+    saveConfig(config);
+    return true;
+  }
+  return false;
+}
+
+// === User API Key CRUD ===
+
+export function createUserApiKey(name: string, expiresInDays: number | null, allowedModels: string[] = []): UserApiKey {
   const config = loadConfig();
   const rawKey = generateApiKey();
   const hashedKey = hashApiKey(rawKey);
 
-  // 确保 userKeys 数组存在
-  if (!config.userKeys) {
-    config.userKeys = [];
-  }
-
   const userKey: UserApiKey = {
     key: hashedKey,
     name,
+    allowedModels,
     createdAt: Date.now(),
     expiresAt: expiresInDays ? Date.now() + expiresInDays * 24 * 60 * 60 * 1000 : null,
     isActive: true,
@@ -202,11 +326,10 @@ export function createUserApiKey(name: string, expiresInDays: number | null): Us
   config.userKeys.push(userKey);
   saveConfig(config);
 
-  // 返回原始 key（只在创建时显示一次）
+  // Return with raw key (only shown once)
   return { ...userKey, key: rawKey };
 }
 
-// 删除用户 API key
 export function deleteUserApiKey(rawKey: string): boolean {
   const config = loadConfig();
   const hashedKey = hashApiKey(rawKey);
@@ -219,131 +342,134 @@ export function deleteUserApiKey(rawKey: string): boolean {
   return true;
 }
 
-// 获取用户 API keys（不返回 hash 后的 key）
 export function listUserApiKeys(): Omit<UserApiKey, 'key'>[] {
   const config = loadConfig();
   return config.userKeys.map(k => ({
     name: k.name,
+    allowedModels: k.allowedModels,
     createdAt: k.createdAt,
     expiresAt: k.expiresAt,
     isActive: k.isActive,
   }));
 }
 
-// 添加 provider API key
-export function addProviderKey(provider: ProviderType, key: string): void {
+export function getUserKeyRaw(key: string): UserApiKey | null {
   const config = loadConfig();
-  if (!config[provider]) {
-    return;
-  }
-  if (!config[provider].keys.includes(key)) {
-    config[provider].keys.push(key);
-    saveConfig(config);
-  }
+  const hashedKey = hashApiKey(key);
+  return config.userKeys.find(k => k.key === hashedKey) || null;
 }
 
-// 移除 provider API key
-export function removeProviderKey(provider: ProviderType, key: string): void {
-  const config = loadConfig();
-  if (!config[provider]) {
-    return;
-  }
-  const index = config[provider].keys.indexOf(key);
-  if (index !== -1) {
-    config[provider].keys.splice(index, 1);
-    saveConfig(config);
-  }
-}
+// === Model Fetching ===
 
-// 更新 provider API Base URL
-export function updateProviderBaseUrl(provider: ProviderType, baseUrl: string): void {
-  const config = loadConfig();
-  if (!config[provider]) {
-    return;
-  }
-  config[provider].apiBaseUrl = baseUrl;
-  saveConfig(config);
-}
-
-// 获取 provider 配置
-export function getProviderConfig(provider: ProviderType): ProviderConfig | null {
-  const config = loadConfig();
-  return config[provider] || null;
-}
-
-// 获取所有 provider 配置
-export function getAllProviderConfigs(): Record<ProviderType, ProviderConfig> {
-  const config = loadConfig();
-  return {
-    openai: config.openai,
-    gemini: config.gemini,
-    anthropic: config.anthropic,
-    nvidia: config.nvidia,
-  };
-}
-
-// Provider 模型信息
 export interface ProviderModels {
-  provider: ProviderType;
+  provider: string;
   models: string[];
   error?: string;
 }
 
-// 从各 provider 获取支持的模型列表
-export async function fetchProviderModels(provider: ProviderType): Promise<ProviderModels> {
+// Fetch models from a provider and update cache
+export async function fetchAndCacheModels(providerId: string): Promise<ProviderModels> {
   const config = loadConfig();
-  const providerConfig = config[provider];
+  const provider = config.providers[providerId];
 
-  if (!providerConfig || providerConfig.keys.length === 0) {
-    return { provider, models: [], error: 'No API key configured' };
+  if (!provider) {
+    return { provider: providerId, models: [], error: 'Provider not found' };
   }
 
-  const apiKey = providerConfig.keys[0];
-  const baseUrl = providerConfig.apiBaseUrl;
+  if (provider.apiKeys.length === 0) {
+    return { provider: providerId, models: [], error: 'No API key configured' };
+  }
+
+  const apiKey = provider.apiKeys[0];
 
   try {
     let models: string[] = [];
 
-    if (provider === 'openai') {
-      // OpenAI: GET /v1/models
-      const response = await fetch(`${baseUrl}/models`, {
+    if (provider.protocolType === 'openai' || provider.protocolType === 'custom') {
+      // OpenAI compatible: GET /v1/models
+      const response = await fetch(`${provider.baseUrl}/models`, {
         headers: { 'Authorization': `Bearer ${apiKey}` },
       });
       if (!response.ok) {
-        return { provider, models: [], error: `HTTP ${response.status}` };
+        return { provider: providerId, models: [], error: `HTTP ${response.status}` };
       }
       const data = await response.json();
-      models = data.data?.map((m: any) => m.id).filter((id: string) => !id.startsWith('gpt-4-')) || [];
+      models = data.data?.map((m: any) => m.id).filter(Boolean) || [];
 
-    } else if (provider === 'anthropic') {
-      // Anthropic: 模型列表（Anthropic 没有公开的 models list API，常用模型硬编码）
-      models = ['claude-3-5-sonnet-20241022', 'claude-3-5-sonnet-latest', 'claude-3-opus-latest', 'claude-3-sonnet-latest', 'claude-3-haiku-latest'];
-
-    } else if (provider === 'gemini') {
-      // Gemini: GET /v1/models
-      const response = await fetch(`${baseUrl}?key=${apiKey}`, {
+    } else if (provider.protocolType === 'gemini') {
+      // Gemini: GET /v1beta/models
+      const url = provider.baseUrl.includes('?')
+        ? `${provider.baseUrl}&key=${apiKey}`
+        : `${provider.baseUrl}?key=${apiKey}`;
+      const response = await fetch(url, {
         headers: { 'Content-Type': 'application/json' },
       });
       if (!response.ok) {
-        return { provider, models: [], error: `HTTP ${response.status}` };
+        return { provider: providerId, models: [], error: `HTTP ${response.status}` };
       }
       const data = await response.json();
       models = data.models?.map((m: any) => m.name.replace('models/', '')).filter(Boolean) || [];
 
-    } else if (provider === 'nvidia') {
-      // NVIDIA: 获取可用模型
-      const response = await fetch(`${baseUrl}/models`, {
+    } else if (provider.protocolType === 'anthropic') {
+      // Anthropic: hardcoded list (no public models API)
+      models = ['claude-3-5-sonnet-20241022', 'claude-3-5-sonnet-latest', 'claude-3-opus-latest', 'claude-3-sonnet-latest', 'claude-3-haiku-latest'];
+
+    } else if (provider.protocolType === 'nvidia') {
+      // NVIDIA: GET /v1/models
+      const response = await fetch(`${provider.baseUrl}/models`, {
         headers: { 'Authorization': `Bearer ${apiKey}` },
       });
       if (!response.ok) {
-        return { provider, models: [], error: `HTTP ${response.status}` };
+        return { provider: providerId, models: [], error: `HTTP ${response.status}` };
       }
       const data = await response.json();
       models = data.data?.map((m: any) => m.id) || [];
     }
 
-    return { provider, models };
+    // Update cache
+    provider.supportedModels = models;
+    provider.lastFetchedAt = Date.now();
+    saveConfig(config);
+
+    return { provider: providerId, models };
   } catch (error: any) {
-    return { provider, models: [], error: error.message };
+    return { provider: providerId, models: [], error: error.message };
+  }
+}
+
+// Get all models across all providers (for admin UI)
+export function getAllModels(): string[] {
+  const config = loadConfig();
+  const modelsSet = new Set<string>();
+
+  for (const provider of Object.values(config.providers)) {
+    for (const model of provider.supportedModels) {
+      modelsSet.add(model);
+    }
+  }
+
+  return Array.from(modelsSet).sort();
+}
+
+// Check if provider models need refresh (older than 24 hours)
+export function needsModelRefresh(providerId: string): boolean {
+  const config = loadConfig();
+  const provider = config.providers[providerId];
+
+  if (!provider) return false;
+  if (!provider.lastFetchedAt) return true;
+
+  const age = Date.now() - provider.lastFetchedAt;
+  return age > 24 * 60 * 60 * 1000; // 24 hours
+}
+
+// Refresh all stale provider models
+export async function refreshStaleModels(): Promise<void> {
+  const config = loadConfig();
+
+  for (const providerId of Object.keys(config.providers)) {
+    if (needsModelRefresh(providerId)) {
+      await fetchAndCacheModels(providerId);
+    }
   }
 }

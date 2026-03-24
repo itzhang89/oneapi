@@ -52,7 +52,9 @@ label {
 
 input[type='text'],
 input[type='password'],
-textarea {
+input[type='number'],
+textarea,
+select {
   width: 100%;
   padding: 10px;
   border: 1px solid #ddd;

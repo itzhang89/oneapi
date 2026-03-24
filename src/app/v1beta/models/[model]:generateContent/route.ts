@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { routeRequest } from '@/lib/routing';
-import { validateUserApiKey, loadConfig, findProviderByKey } from '@/lib/config';
 
-export async function POST(request: NextRequest) {
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { model: string } }
+) {
   try {
+    // Get API key from Authorization header
     const authHeader = request.headers.get('authorization');
     const apiKey = authHeader?.replace('Bearer ', '');
 
@@ -15,18 +18,12 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-
-    if (!body.model || !body.messages) {
-      return NextResponse.json(
-        { error: 'Missing model or messages' },
-        { status: 400 }
-      );
-    }
+    const path = `/v1beta/models/${params.model}:generateContent`;
 
     const result = await routeRequest({
       apiKey,
       method: 'POST',
-      path: '/v1/chat/completions',
+      path,
       body,
       headers: Object.fromEntries(request.headers.entries()),
     });
