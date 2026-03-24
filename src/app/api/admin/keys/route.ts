@@ -16,7 +16,7 @@ import {
 export async function GET(request: NextRequest) {
   const token = request.headers.get('x-master-key');
 
-  // 验证 master key
+  // 验证 token
   const config = loadConfig();
   if (config.token && config.token !== token) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
   const token = request.headers.get('x-master-key');
   const config = loadConfig();
 
-  // 验证 master key
+  // 验证 token
   if (config.token && config.token !== token) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

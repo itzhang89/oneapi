@@ -77,7 +77,7 @@ export default function AdminPage() {
 
   const handleLogin = async () => {
     if (!token) {
-      setMessage('请输入 Master Key');
+      setMessage('请输入 token');
       return;
     }
 
@@ -92,7 +92,7 @@ export default function AdminPage() {
       setProviders(data.providers || null);
       setMessage('');
     } else {
-      setMessage('Master Key 无效');
+      setMessage('token 无效');
     }
   };
 
@@ -263,13 +263,13 @@ export default function AdminPage() {
         <div className="card" style={{ maxWidth: 400, margin: '100px auto' }}>
           <h2>LLM Proxy 管理</h2>
           <div className="form-group">
-            <label>Master Key</label>
+            <label>token</label>
             <div style={{ display: 'flex', gap: 10 }}>
               <input
                 type="password"
                 value={token}
                 onChange={(e) => settoken(e.target.value)}
-                placeholder="输入 Master Key"
+                placeholder="输入 token"
                 style={{ flex: 1 }}
               />
             </div>

@@ -44,7 +44,7 @@ export function verifyApiKey(key: string, hashed: string): boolean {
   return hashApiKey(key) === hashed;
 }
 
-// 验证 master key
+// 验证 token
 export function verifytoken(key: string): boolean {
   const config = loadConfig();
   return !!(config.token && config.token === key);
@@ -165,7 +165,7 @@ export function getNextKey(provider: ProviderType): { key: string; index: number
 export function validateUserApiKey(key: string): boolean {
   const config = loadConfig();
 
-  // 如果没有设置 master key，则不验证
+  // 如果没有设置 token，则不验证
   if (!config.token) {
     return true;
   }
