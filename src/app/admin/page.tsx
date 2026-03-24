@@ -55,6 +55,7 @@ export default function AdminPage() {
   const [tempBaseUrl, setTempBaseUrl] = useState('');
   const [providerModels, setProviderModels] = useState<Record<string, ProviderModels>>({});
   const [fetchingModels, setFetchingModels] = useState<string | null>(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   // Load data after authentication
   useEffect(() => {
@@ -132,6 +133,7 @@ export default function AdminPage() {
       }
       setNewKeyName('');
       setNewKeyExpiry('');
+      setIsCreateModalOpen(false);
       await loadData();
     } else {
       setMessage('创建失败');
@@ -386,50 +388,12 @@ export default function AdminPage() {
         ))}
       </div>
 
-      {/* Create User API Key */}
-      <div className="card">
-        <h2>创建用户 API Key</h2>
-        {createdKey && (
-          <div style={{ background: '#d4edda', padding: 10, borderRadius: 4, marginBottom: 15 }}>
-            <strong>新 API Key（已复制到剪贴板）：</strong>
-            <code style={{ display: 'block', marginTop: 5, wordBreak: 'break-all' }}>
-              {createdKey}
-            </code>
-            <button
-              className="btn btn-small"
-              onClick={() => setCreatedKey(null)}
-              style={{ marginTop: 5 }}
-            >
-              我已保存
-            </button>
-          </div>
-        )}
-        <div className="form-group">
-          <label>Key 名称</label>
-          <input
-            type="text"
-            value={newKeyName}
-            onChange={(e) => setNewKeyName(e.target.value)}
-            placeholder="例如：测试 Key"
-          />
-        </div>
-        <div className="form-group">
-          <label>过期天数（留空表示永不过期）</label>
-          <input
-            type="number"
-            value={newKeyExpiry}
-            onChange={(e) => setNewKeyExpiry(e.target.value)}
-            placeholder="例如：30"
-          />
-        </div>
-        <button className="btn btn-primary" onClick={handleCreateKey}>
-          创建
-        </button>
-      </div>
-
       {/* User API Keys List */}
       <div className="card">
-        <h2>用户 API Keys</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <h2>用户 API Keys</h2>
+          <button className="btn btn-primary btn-small" onClick={() => setIsCreateModalOpen(true)}>+ 新增</button>
+        </div>
         {userKeys.length === 0 ? (
           <p style={{ color: '#666' }}>暂无 API Keys</p>
         ) : (
@@ -478,6 +442,71 @@ export default function AdminPage() {
           &nbsp;&nbsp;其他 → NVIDIA (fallback)
         </p>
       </div>
+
+      {/* Create User API Key Modal */}
+      {isCreateModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+        }}>
+          <div className="card" style={{ maxWidth: 400, width: '100%', margin: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+              <h2 style={{ margin: 0 }}>创建用户 API Key</h2>
+              <button
+                className="btn btn-small"
+                onClick={() => setIsCreateModalOpen(false)}
+                style={{ padding: '5px 10px' }}
+              >
+                ×
+              </button>
+            </div>
+            {createdKey && (
+              <div style={{ background: '#d4edda', padding: 10, borderRadius: 4, marginBottom: 15 }}>
+                <strong>新 API Key（已复制到剪贴板）：</strong>
+                <code style={{ display: 'block', marginTop: 5, wordBreak: 'break-all' }}>
+                  {createdKey}
+                </code>
+                <button
+                  className="btn btn-small"
+                  onClick={() => setCreatedKey(null)}
+                  style={{ marginTop: 5 }}
+                >
+                  我已保存
+                </button>
+              </div>
+            )}
+            <div className="form-group">
+              <label>Key 名称</label>
+              <input
+                type="text"
+                value={newKeyName}
+                onChange={(e) => setNewKeyName(e.target.value)}
+                placeholder="例如：测试 Key"
+              />
+            </div>
+            <div className="form-group">
+              <label>过期天数（留空表示永不过期）</label>
+              <input
+                type="number"
+                value={newKeyExpiry}
+                onChange={(e) => setNewKeyExpiry(e.target.value)}
+                placeholder="例如：30"
+              />
+            </div>
+            <button className="btn btn-primary" onClick={handleCreateKey}>
+              创建
+            </button>
+          </div>
+        </div>
+      )}
 
       {message && (
         <div style={{ marginTop: 10, color: message.includes('成功') || message.includes('已复制') ? 'green' : 'red' }}>
