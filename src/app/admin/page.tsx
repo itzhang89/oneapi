@@ -36,8 +36,15 @@ const PROVIDERS: { name: string; key: 'openai' | 'gemini' | 'anthropic' | 'nvidi
   { name: 'NVIDIA', key: 'nvidia', prefix: '', defaultUrl: 'https://integrate.api.nvidia.com/v1' },
 ];
 
+const STORAGE_KEY = 'llm-proxy-token';
+
 export default function AdminPage() {
-  const [token, settoken] = useState('');
+  const [token, settoken] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(STORAGE_KEY) || '';
+    }
+    return '';
+  });
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -64,6 +71,15 @@ export default function AdminPage() {
     }
   }, [isAuthenticated, token]);
 
+  // Auto-login on mount if token exists in localStorage
+  useEffect(() => {
+    const storedToken = localStorage.getItem(STORAGE_KEY);
+    if (storedToken) {
+      settoken(storedToken);
+      setIsAuthenticated(true);
+    }
+  }, []);
+
   const loadData = async () => {
     const res = await fetch('/api/admin/keys', {
       headers: { 'x-master-key': token },
@@ -87,6 +103,7 @@ export default function AdminPage() {
 
     if (res.ok) {
       setIsAuthenticated(true);
+      localStorage.setItem(STORAGE_KEY, token);
       const data = await res.json();
       setUserKeys(data.keys || []);
       setProviders(data.providers || null);
@@ -100,6 +117,7 @@ export default function AdminPage() {
     setIsAuthenticated(false);
     setUserKeys([]);
     setProviders(null);
+    localStorage.removeItem(STORAGE_KEY);
   };
 
   const handleCreateKey = async () => {
