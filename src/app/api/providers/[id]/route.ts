@@ -11,7 +11,7 @@ import {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const token = request.headers.get('x-master-key');
   const config = loadConfig();
@@ -20,7 +20,8 @@ export async function GET(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const provider = getProvider(params.id);
+  const { id } = await params;
+  const provider = getProvider(id);
   if (!provider) {
     return NextResponse.json({ error: 'Provider not found' }, { status: 404 });
   }
@@ -30,7 +31,7 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const token = request.headers.get('x-master-key');
   const config = loadConfig();
@@ -41,7 +42,8 @@ export async function PUT(
 
   try {
     const body = await request.json();
-    const updated = updateProvider(params.id, body);
+    const { id } = await params;
+    const updated = updateProvider(id, body);
 
     if (!updated) {
       return NextResponse.json({ error: 'Provider not found' }, { status: 404 });
@@ -55,7 +57,7 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const token = request.headers.get('x-master-key');
   const config = loadConfig();
@@ -64,7 +66,8 @@ export async function DELETE(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const success = deleteProvider(params.id);
+  const { id } = await params;
+  const success = deleteProvider(id);
   if (!success) {
     return NextResponse.json({ error: 'Provider not found' }, { status: 404 });
   }

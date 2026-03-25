@@ -8,7 +8,7 @@ import {
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const token = request.headers.get('x-master-key');
   const config = loadConfig();
@@ -17,13 +17,14 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const provider = getProvider(params.id);
+  const { id } = await params;
+  const provider = getProvider(id);
   if (!provider) {
     return NextResponse.json({ error: 'Provider not found' }, { status: 404 });
   }
 
   try {
-    const result = await fetchAndCacheModels(params.id);
+    const result = await fetchAndCacheModels(id);
     return NextResponse.json(result);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
