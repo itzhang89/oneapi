@@ -66,8 +66,8 @@ export async function routeRequest(ctx: RoutingContext): Promise<ProxyResult> {
 
 // Extract model from request (varies by protocol)
 function extractModelFromRequest(method: string, path: string, body?: any): string | null {
-  // Gemini: /v1beta/models/{model}:generateContent
-  const geminiMatch = path.match(/\/v1beta\/models\/([^:]+):generateContent/);
+  // Gemini: /models/{model}:generateContent
+  const geminiMatch = path.match(/\/models\/([^:]+):generateContent/);
   if (geminiMatch) {
     return geminiMatch[1];
   }
