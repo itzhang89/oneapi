@@ -3,7 +3,7 @@ import { routeRequest } from '@/lib/routing';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { model: string } }
+  { params }: { params: Promise<{ model: string }> }
 ) {
   try {
     const authHeader = request.headers.get('authorization');
@@ -18,7 +18,7 @@ export async function POST(
 
     const body = await request.json();
     // The model name includes the :generateContent suffix (e.g., gemini-pro:generateContent)
-    const model = params.model;
+    const { model } = await params;
     const path = `/models/${model}`;
 
     const result = await routeRequest({
