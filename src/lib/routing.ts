@@ -114,6 +114,8 @@ async function passthroughToProvider(
   } else if (provider.protocolType === 'anthropic') {
     headersOut['Authorization'] = `Bearer ${apiKey}`;
     headersOut['anthropic-version'] = '2023-06-01';
+  } else if (provider.protocolType === 'gemini') {
+    headersOut['x-goog-api-key'] = apiKey;
   }
   // Gemini uses API key in query params, handled below
 

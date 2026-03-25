@@ -17,7 +17,6 @@ export async function POST(
     }
 
     const body = await request.json();
-    // The model name includes the :generateContent suffix (e.g., gemini-pro:generateContent)
     const { model } = await params;
     const path = `/models/${model}`;
 
