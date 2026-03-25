@@ -8,8 +8,9 @@ export async function POST(
   try {
     const authHeader = request.headers.get('authorization');
     const apiKey = authHeader?.replace('Bearer ', '');
+    const googleApiKey = request.headers.get('x-goog-api-key') || undefined;
 
-    if (!apiKey) {
+    if (!apiKey && !googleApiKey) {
       return NextResponse.json(
         { error: 'Missing API key' },
         { status: 401 }
@@ -21,7 +22,7 @@ export async function POST(
     const path = `/models/${model}`;
 
     const result = await routeRequest({
-      apiKey,
+      apiKey: apiKey || googleApiKey || '',
       method: 'POST',
       path,
       body,
@@ -61,7 +62,7 @@ export async function OPTIONS() {
     headers: {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-goog-api-key',
     },
   });
 }
