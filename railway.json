@@ -4,13 +4,15 @@
     "builder": "NIXPACKS",
     "nixpacks": {
       "distro": "ubuntu22",
-      "image": "railwayapp/nixpacks:nodejs-20"
+      "image": "railwayapp/nixpacks:nodejs-20",
+      "aptPackages": []
     }
   },
   "deploy": {
     "numReplicas": 1,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10,
+    "runCommand": "npm start",
     "healthcheckPath": "/",
     "healthcheckPort": 3000
   }
