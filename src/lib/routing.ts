@@ -103,9 +103,14 @@ async function passthroughToProvider(
   }
 
   const url = `${provider.baseUrl}${path}`;
+  // const headersOut: Record<string, string> = {
+  //   'Content-Type': 'application/json',
+  //   ...(headers || {}),
+  // };
+
+  // Start with default headers, then add auth headers based on protocol
   const headersOut: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(headers || {}),
+    'Content-Type': 'application/json'
   };
 
   // Add auth header based on protocol type
@@ -115,6 +120,8 @@ async function passthroughToProvider(
     headersOut['Authorization'] = `Bearer ${apiKey}`;
     headersOut['anthropic-version'] = '2023-06-01';
   } else if (provider.protocolType === 'gemini') {
+    // delete headersOut['authorization'];
+    // delete headersOut['Authorization'];
     headersOut['x-goog-api-key'] = apiKey;
   }
   // Gemini uses API key in query params, handled below
@@ -131,17 +138,15 @@ async function passthroughToProvider(
       fetchOptions.body = JSON.stringify(body);
     }
 
-    // For Gemini, add API key to query string
-    let finalUrl = url;
-    if (provider.protocolType === 'gemini' && !url.includes('key=')) {
-      const separator = url.includes('?') ? '&' : '?';
-      finalUrl = `${url}${separator}key=${apiKey}`;
-      // Remove authorization header for Gemini (API key is in URL)
-      delete headersOut['authorization'];
-      delete headersOut['Authorization'];
-    }
+    // console.log(`Routing request to provider ${provider.id} at ${url} with method ${method}`);
+    // console.log(`Request headers: ${JSON.stringify(headersOut)}`);
+    // console.log(`Request body: ${fetchOptions.body}`);
 
-    const response = await fetch(finalUrl, fetchOptions);
+    const response = await fetch(url, fetchOptions);
+
+    // console.log(`Received response with status ${response.status} from provider ${provider.id}`);
+    // console.log(`Response headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()))}`);
+    // console.log(`Response body: ${await response.clone().text()}`);
 
     // Handle streaming responses
     if (body?.stream) {
