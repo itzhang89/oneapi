@@ -30,7 +30,7 @@ export async function routeRequest(ctx: RoutingContext): Promise<ProxyResult> {
   // Check if this is a provider API key (direct passthrough)
   const provider = findProviderByKey(apiKey);
   if (provider) {
-    return passthroughToProvider(provider, method, path, body, headers);
+    return passthroughToProvider(provider, method, path, body, headers, apiKey);
   }
 
   // Check if this is a valid user API key
@@ -72,12 +72,7 @@ function extractModelFromRequest(method: string, path: string, body?: any): stri
     return geminiMatch[1];
   }
 
-  // Anthropic: body.model
-  if (body?.model) {
-    return body.model;
-  }
-
-  // OpenAI: body.model
+  // OpenAI/Anthropic/NVIDIA: body.model
   if (body?.model) {
     return body.model;
   }
@@ -98,9 +93,11 @@ async function passthroughToProvider(
   method: string,
   path: string,
   body?: any,
-  headers?: Record<string, string>
+  headers?: Record<string, string>,
+  apiKeyOverride?: string
 ): Promise<ProxyResult> {
-  const apiKey = getNextKeyForProvider(provider.id);
+  // Use provided API key (for direct provider key passthrough) or get from provider config
+  const apiKey = apiKeyOverride || getNextKeyForProvider(provider.id);
   if (!apiKey) {
     return { success: false, error: 'Provider has no API keys configured', status: 500 };
   }
@@ -137,7 +134,8 @@ async function passthroughToProvider(
     if (provider.protocolType === 'gemini' && !url.includes('key=')) {
       const separator = url.includes('?') ? '&' : '?';
       finalUrl = `${url}${separator}key=${apiKey}`;
-      // Remove API key from headers if present
+      // Remove authorization header for Gemini (API key is in URL)
+      delete headersOut['authorization'];
       delete headersOut['Authorization'];
     }
 

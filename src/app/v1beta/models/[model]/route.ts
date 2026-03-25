@@ -6,7 +6,6 @@ export async function POST(
   { params }: { params: { model: string } }
 ) {
   try {
-    // Get API key from Authorization header
     const authHeader = request.headers.get('authorization');
     const apiKey = authHeader?.replace('Bearer ', '');
 
@@ -18,7 +17,9 @@ export async function POST(
     }
 
     const body = await request.json();
-    const path = `/v1beta/models/${params.model}:generateContent`;
+    // The model name includes the :generateContent suffix (e.g., gemini-pro:generateContent)
+    const model = params.model;
+    const path = `/models/${model}`;
 
     const result = await routeRequest({
       apiKey,

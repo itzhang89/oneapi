@@ -397,10 +397,9 @@ export async function fetchAndCacheModels(providerId: string): Promise<ProviderM
       models = data.data?.map((m: any) => m.id).filter(Boolean) || [];
 
     } else if (provider.protocolType === 'gemini') {
-      // Gemini: GET /v1beta/models
-      const url = provider.baseUrl.includes('?')
-        ? `${provider.baseUrl}&key=${apiKey}`
-        : `${provider.baseUrl}?key=${apiKey}`;
+      // Gemini: GET /v1beta/models (append /models to baseUrl)
+      const base = provider.baseUrl.replace(/\/$/, ''); // remove trailing slash
+      const url = `${base}/models?key=${apiKey}`;
       const response = await fetch(url, {
         headers: { 'Content-Type': 'application/json' },
       });
