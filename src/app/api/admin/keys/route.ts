@@ -3,6 +3,7 @@ import {
   loadConfig,
   createUserApiKey,
   deleteUserApiKey,
+  deleteUserApiKeyByName,
   listUserApiKeys,
   verifyToken,
   getUserKeyRaw,
@@ -54,12 +55,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'delete') {
-      // Delete user API key
-      const { key } = body;
-      if (!key) {
-        return NextResponse.json({ error: 'Key is required' }, { status: 400 });
+      // Delete user API key by name
+      const { name } = body;
+      if (!name) {
+        return NextResponse.json({ error: 'Name is required' }, { status: 400 });
       }
-      const success = deleteUserApiKey(key);
+      const success = deleteUserApiKeyByName(name);
       return NextResponse.json({ success });
     }
 

@@ -258,6 +258,12 @@ export default function AdminPage() {
       return;
     }
 
+    // Check for duplicate name
+    if (userKeys.some(k => k.name === newKeyForm.name)) {
+      setMessage('该名称已存在，请使用其他名称');
+      return;
+    }
+
     const expiresInDays = newKeyForm.expiresInDays ? parseInt(newKeyForm.expiresInDays) : null;
 
     const res = await fetch('/api/admin/keys', {
@@ -282,6 +288,11 @@ export default function AdminPage() {
         setCreatedKey(newKey);
         setMessage('API Key 已创建并复制到剪贴板！');
       }
+      if (newKey) {
+        await navigator.clipboard.writeText(newKey);
+        setCreatedKey(newKey);
+        setMessage('API Key 已创建并复制到剪贴板！');
+      }
       setNewKeyForm({ name: '', expiresInDays: '', allowedModels: [] });
       setIsCreateKeyOpen(false);
       await loadData();
@@ -290,7 +301,7 @@ export default function AdminPage() {
     }
   };
 
-  const handleDeleteKey = async (key: string) => {
+  const handleDeleteKey = async (name: string) => {
     if (!confirm('确定要删除这个 API Key 吗？')) return;
 
     const res = await fetch('/api/admin/keys', {
@@ -299,7 +310,7 @@ export default function AdminPage() {
         'Content-Type': 'application/json',
         'x-master-key': token,
       },
-      body: JSON.stringify({ action: 'delete', key }),
+      body: JSON.stringify({ action: 'delete', name }),
     });
 
     if (res.ok) {
@@ -537,47 +548,64 @@ curl -X POST https://your-domain/v1/chat/completions \\
           {userKeys.length === 0 ? (
             <p style={{ color: '#666' }}>暂无 API Keys</p>
           ) : (
-            userKeys.map((k, i) => (
-              <div key={i} style={{ marginBottom: 15, padding: 10, background: '#f9f9f9', borderRadius: 4 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <strong>{k.name}</strong>
-                    <br />
-                    <small style={{ color: '#888' }}>
-                      创建: {new Date(k.createdAt).toLocaleDateString('zh-CN')} |{' '}
-                      过期: {formatExpiry(k.expiresAt)}
-                      {isExpired(k.expiresAt) && <span style={{ color: 'red' }}> (已过期)</span>}
-                    </small>
-                    {k.allowedModels?.length > 0 && (
-                      <div style={{ marginTop: 5 }}>
-                        <small style={{ color: '#666' }}>允许的模型:</small>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 3 }}>
-                          {k.allowedModels.slice(0, 10).map((m, mi) => (
-                            <code key={mi} style={{ fontSize: 10, padding: '1px 4px', background: '#e8f4fd', borderRadius: 2 }}>
-                              {m}
-                            </code>
-                          ))}
-                          {k.allowedModels.length > 10 && (
-                            <span style={{ fontSize: 10, color: '#666' }}>...等 {k.allowedModels.length} 个</span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                    {k.allowedModels?.length === 0 && (
-                      <div style={{ marginTop: 5 }}>
-                        <small style={{ color: '#4a4' }}>允许所有模型</small>
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    className="btn btn-danger btn-small"
-                    onClick={() => handleDeleteKey(k.key)}
-                  >
-                    删除
-                  </button>
-                </div>
-              </div>
-            ))
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid #eee' }}>
+                    <th style={{ textAlign: 'left', padding: '8px 12px', color: '#666' }}>Name</th>
+                    <th style={{ textAlign: 'left', padding: '8px 12px', color: '#666' }}>Status</th>
+                    <th style={{ textAlign: 'left', padding: '8px 12px', color: '#666' }}>Created</th>
+                    <th style={{ textAlign: 'left', padding: '8px 12px', color: '#666' }}>Permissions</th>
+                    <th style={{ textAlign: 'right', padding: '8px 12px', color: '#666' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {userKeys.map((k, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{ padding: '12px' }}>
+                        <strong>{k.name}</strong>
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        {isExpired(k.expiresAt) ? (
+                          <span style={{ color: 'red', fontSize: 12 }}>已过期</span>
+                        ) : k.isActive ? (
+                          <span style={{ color: 'green', fontSize: 12 }}>正常</span>
+                        ) : (
+                          <span style={{ color: '#999', fontSize: 12 }}>已禁用</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px', color: '#666', fontSize: 13 }}>
+                        {new Date(k.createdAt).toLocaleDateString('zh-CN')}
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        {k.allowedModels?.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxWidth: 300 }}>
+                            {k.allowedModels.slice(0, 5).map((m, mi) => (
+                              <code key={mi} style={{ fontSize: 10, padding: '2px 6px', background: '#e8f4fd', borderRadius: 3 }}>
+                                {m}
+                              </code>
+                            ))}
+                            {k.allowedModels.length > 5 && (
+                              <span style={{ fontSize: 10, color: '#666' }}>+{k.allowedModels.length - 5}</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span style={{ color: '#4a4', fontSize: 12 }}>全部模型</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'right' }}>
+                        <button
+                          className="btn btn-danger btn-small"
+                          onClick={() => handleDeleteKey(k.name)}
+                        >
+                          删除
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
@@ -703,16 +731,19 @@ curl -X POST https://your-domain/v1/chat/completions \\
 
             {createdKey && (
               <div style={{ background: '#d4edda', padding: 10, borderRadius: 4, marginBottom: 15 }}>
-                <strong>新 API Key（已复制到剪贴板）：</strong>
-                <code style={{ display: 'block', marginTop: 5, wordBreak: 'break-all', fontSize: 12 }}>
+                <strong>新 API Key（已自动复制到剪贴板，请妥善保存）：</strong>
+                <code style={{ display: 'block', marginTop: 8, wordBreak: 'break-all', fontSize: 13, fontFamily: 'monospace', background: '#fff', padding: 8, borderRadius: 4 }}>
                   {createdKey}
                 </code>
-                <button className="btn btn-small" onClick={() => setCreatedKey(null)} style={{ marginTop: 5 }}>
-                  我已保存
+                <p style={{ fontSize: 12, color: '#666', marginTop: 8 }}>关闭后无法再次查看此密钥</p>
+                <button className="btn btn-primary btn-small" onClick={() => { setCreatedKey(null); setNewKeyForm({ name: '', expiresInDays: '', allowedModels: [] }); setIsCreateKeyOpen(false); loadData(); }} style={{ marginTop: 10 }}>
+                  完成
                 </button>
               </div>
             )}
 
+            {!createdKey && (
+            <div>
             <div className="form-group">
               <label>Key 名称</label>
               <input
@@ -783,6 +814,8 @@ curl -X POST https://your-domain/v1/chat/completions \\
                 取消
               </button>
             </div>
+            </div>
+            )}
           </div>
         </div>
       )}

@@ -342,6 +342,18 @@ export function deleteUserApiKey(rawKey: string): boolean {
   return true;
 }
 
+// Delete user API key by name (used by admin since name is the identifier returned to UI)
+export function deleteUserApiKeyByName(name: string): boolean {
+  const config = loadConfig();
+  const index = config.userKeys.findIndex(k => k.name === name);
+
+  if (index === -1) return false;
+
+  config.userKeys.splice(index, 1);
+  saveConfig(config);
+  return true;
+}
+
 export function listUserApiKeys(): Omit<UserApiKey, 'key'>[] {
   const config = loadConfig();
   return config.userKeys.map(k => ({
