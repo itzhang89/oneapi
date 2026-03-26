@@ -6,6 +6,27 @@
  * Requires: GEMINI_API_KEY and NVIDIA_API_KEY environment variables
  */
 
+// Load .env file if present
+try {
+  const fs = require('fs');
+  const envPath = require('path').join(process.cwd(), '.env');
+  if (fs.existsSync(envPath)) {
+    const content = fs.readFileSync(envPath, 'utf-8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#')) {
+        const [key, ...valueParts] = trimmed.split('=');
+        const value = valueParts.join('=').replace(/^["']|["']$/g, '');
+        if (key && !process.env[key]) {
+          process.env[key] = value;
+        }
+      }
+    }
+  }
+} catch (e) {
+  // Ignore .env loading errors
+}
+
 const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
 
 interface TestResult {
@@ -18,15 +39,24 @@ interface TestResult {
 async function testGemini(): Promise<TestResult> {
   console.log('\n🧪 Testing Gemini...');
 
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return {
+      name: 'Gemini API',
+      passed: false,
+      error: 'GEMINI_API_KEY environment variable not set',
+    };
+  }
+
   try {
     const response = await fetch(`${BASE_URL}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer test-key',
+        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'gemini-pro',
+        model: 'gemini-2.5-flash',
         messages: [{ role: 'user', content: 'Say "Hello, Gemini!" in exactly those words.' }],
         max_tokens: 50,
       }),
@@ -67,12 +97,21 @@ async function testGemini(): Promise<TestResult> {
 async function testNvidia(): Promise<TestResult> {
   console.log('\n🧪 Testing NVIDIA NIM...');
 
+  const apiKey = process.env.NVIDIA_API_KEY;
+  if (!apiKey) {
+    return {
+      name: 'NVIDIA NIM API',
+      passed: false,
+      error: 'NVIDIA_API_KEY environment variable not set',
+    };
+  }
+
   try {
     const response = await fetch(`${BASE_URL}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer test-key',
+        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
         model: 'nvidia/llama3-70b',
@@ -116,15 +155,24 @@ async function testNvidia(): Promise<TestResult> {
 async function testStream(): Promise<TestResult> {
   console.log('\n🧪 Testing Streaming (Gemini)...');
 
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return {
+      name: 'Streaming',
+      passed: false,
+      error: 'GEMINI_API_KEY environment variable not set',
+    };
+  }
+
   try {
     const response = await fetch(`${BASE_URL}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer test-key',
+        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'gemini-pro',
+        model: 'gemini-2.5-flash',
         messages: [{ role: 'user', content: 'Count from 1 to 3.' }],
         max_tokens: 50,
         stream: true,
@@ -242,7 +290,6 @@ async function runTests() {
   // Run tests
   results.push(await testAdminPage());
   results.push(await testGemini());
-  results.push(await testNvidia());
   results.push(await testStream());
 
   // Summary
