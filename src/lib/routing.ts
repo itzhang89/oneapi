@@ -28,6 +28,10 @@ export async function routeRequest(ctx: RoutingContext): Promise<ProxyResult> {
   const { apiKey, method, path, body, headers } = ctx;
 
   let xGoogApiKey = headers?.['x-goog-api-key'] || headers?.['X-Goog-Api-Key'] || headers?.['x-Goog-Api-Key'] || headers?.['X-GOOG-API-KEY'];
+  let authHeader = headers?.['Authorization'] || headers?.['authorization'];
+  let bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  let nvapiKey = bearerToken?.startsWith('nvapi-') ? bearerToken : null;
+
   // If x-goog-api-key header is present, forward directly to Gemini without any transformation
   if (xGoogApiKey) {
     const config = loadConfig();
@@ -36,6 +40,16 @@ export async function routeRequest(ctx: RoutingContext): Promise<ProxyResult> {
       return rawPassthroughToGemini(geminiProvider, method, path, body, xGoogApiKey);
     }
     return { success: false, error: 'Gemini provider not configured', status: 500 };
+  }
+
+  // If Bearer token starts with nvapi-, forward directly to NVIDIA
+  if (nvapiKey) {
+    const config = loadConfig();
+    const nvidiaProvider = config.providers['nvidia'];
+    if (nvidiaProvider) {
+      return rawPassthroughToNvidia(nvidiaProvider, method, path, body, nvapiKey);
+    }
+    return { success: false, error: 'NVIDIA provider not configured', status: 500 };
   }
 
   // Check if this is a provider API key
@@ -195,6 +209,69 @@ async function passthroughToProvider(
     }
 
     // Read response
+    const contentType = response.headers.get('content-type') || '';
+    let data: any;
+
+    if (contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      data = await response.text();
+    }
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: typeof data === 'string' ? data : JSON.stringify(data),
+        status: response.status,
+      };
+    }
+
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message, status: 500 };
+  }
+}
+
+// Raw passthrough to NVIDIA - no transformations at all
+async function rawPassthroughToNvidia(
+  provider: Provider,
+  method: string,
+  path: string,
+  body?: any,
+  apiKey?: string
+): Promise<ProxyResult> {
+  if (!apiKey) {
+    return { success: false, error: 'API key required', status: 500 };
+  }
+
+  const url = `${provider.baseUrl}${path}`;
+
+  try {
+    const fetchOptions: RequestInit = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'Accept': body?.stream ? 'text/event-stream' : 'application/json',
+      },
+    };
+
+    if (body && ['POST', 'PUT', 'PATCH'].includes(method)) {
+      fetchOptions.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(url, fetchOptions);
+
+    // Handle streaming responses
+    if (body?.stream) {
+      return {
+        success: true,
+        data: response.body,
+        status: response.status,
+      };
+    }
+
+    // Return raw response - JSON as-is
     const contentType = response.headers.get('content-type') || '';
     let data: any;
 
