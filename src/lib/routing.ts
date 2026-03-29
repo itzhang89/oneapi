@@ -27,9 +27,22 @@ export interface RoutingContext {
 export async function routeRequest(ctx: RoutingContext): Promise<ProxyResult> {
   const { apiKey, method, path, body, headers } = ctx;
 
-  // Check if this is a provider API key (direct passthrough)
+  // Check if this is a provider API key
   const provider = findProviderByKey(apiKey);
   if (provider) {
+    // For Gemini, we still need to convert the request format
+    const model = extractModelFromRequest(method, path, body);
+    if (provider.protocolType === 'gemini' && model) {
+      const convertedBody = convertRequestToProvider(model, body || {}, provider.protocolType);
+      // Use streamGenerateContent for streaming, generateContent for non-streaming
+      // Note: body.stream is the original request's stream flag
+      const isStreaming = body?.stream;
+      const geminiPath = isStreaming
+        ? `/models/${model}:streamGenerateContent`
+        : `/models/${model}:generateContent`;
+      // Return Gemini response directly without conversion
+      return passthroughToProvider(provider, method, geminiPath, convertedBody, headers, apiKey);
+    }
     return passthroughToProvider(provider, method, path, body, headers, apiKey);
   }
 
@@ -102,7 +115,11 @@ async function passthroughToProvider(
     return { success: false, error: 'Provider has no API keys configured', status: 500 };
   }
 
-  const url = `${provider.baseUrl}${path}`;
+  let url = `${provider.baseUrl}${path}`;
+  // Gemini API key goes in query params for streaming
+  if (provider.protocolType === 'gemini') {
+    url += `?key=${apiKey}`;
+  }
   // const headersOut: Record<string, string> = {
   //   'Content-Type': 'application/json',
   //   ...(headers || {}),
@@ -148,8 +165,17 @@ async function passthroughToProvider(
     // console.log(`Response headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()))}`);
     // console.log(`Response body: ${await response.clone().text()}`);
 
-    // Handle streaming responses
-    if (body?.stream) {
+    // Handle streaming responses (check URL path for Gemini streaming)
+    const isStreaming = body?.stream || path.includes('streamGenerateContent');
+    if (isStreaming) {
+      // For Gemini streaming, wrap the newline-JSON stream to proper SSE format
+      if (provider.protocolType === 'gemini') {
+        return {
+          success: true,
+          data: wrapGeminiStream(response.body!),
+          status: response.status,
+        };
+      }
       return {
         success: true,
         data: response.body,
@@ -258,4 +284,37 @@ export function convertResponseFromProvider(response: any, protocolType: Protoco
 
   // OpenAI, NVIDIA, custom - pass through
   return response;
+}
+
+// Wrap Gemini's newline-JSON stream to proper SSE data: format
+function wrapGeminiStream(inputStream: ReadableStream): ReadableStream {
+  const reader = inputStream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  return new ReadableStream({
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) {
+        controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+        controller.close();
+        return;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        // Gemini returns JSON objects separated by newlines
+        // Wrap each as SSE data: event
+        controller.enqueue(new TextEncoder().encode(`data: ${trimmed}\n\n`));
+      }
+    },
+    cancel() {
+      reader.cancel();
+    },
+  });
 }

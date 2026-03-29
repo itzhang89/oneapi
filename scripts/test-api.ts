@@ -72,7 +72,9 @@ async function testGemini(): Promise<TestResult> {
       };
     }
 
-    if (!data.choices?.[0]?.message?.content) {
+    // Accept both OpenAI format and Gemini raw format
+    const content = data.choices?.[0]?.message?.content || data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!content) {
       return {
         name: 'Gemini API',
         passed: false,
