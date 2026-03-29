@@ -27,6 +27,17 @@ export interface RoutingContext {
 export async function routeRequest(ctx: RoutingContext): Promise<ProxyResult> {
   const { apiKey, method, path, body, headers } = ctx;
 
+  let xGoogApiKey = headers?.['x-goog-api-key'] || headers?.['X-Goog-Api-Key'] || headers?.['x-Goog-Api-Key'] || headers?.['X-GOOG-API-KEY'];
+  // If x-goog-api-key header is present, forward directly to Gemini without any transformation
+  if (xGoogApiKey) {
+    const config = loadConfig();
+    const geminiProvider = config.providers['gemini'];
+    if (geminiProvider) {
+      return rawPassthroughToGemini(geminiProvider, method, path, body, xGoogApiKey);
+    }
+    return { success: false, error: 'Gemini provider not configured', status: 500 };
+  }
+
   // Check if this is a provider API key
   const provider = findProviderByKey(apiKey);
   if (provider) {
@@ -184,6 +195,66 @@ async function passthroughToProvider(
     }
 
     // Read response
+    const contentType = response.headers.get('content-type') || '';
+    let data: any;
+
+    if (contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      data = await response.text();
+    }
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: typeof data === 'string' ? data : JSON.stringify(data),
+        status: response.status,
+      };
+    }
+
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message, status: 500 };
+  }
+}
+
+// Raw passthrough to Gemini - no transformations at all
+async function rawPassthroughToGemini(
+  provider: Provider,
+  method: string,
+  path: string,
+  body?: any,
+  apiKey?: string
+): Promise<ProxyResult> {
+  if (!apiKey) {
+    return { success: false, error: 'API key required', status: 500 };
+  }
+
+  const url = `${provider.baseUrl}${path}?key=${apiKey}`;
+
+  try {
+    const fetchOptions: RequestInit = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    };
+
+    if (body && ['POST', 'PUT', 'PATCH'].includes(method)) {
+      fetchOptions.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(url, fetchOptions);
+
+    // Return raw response - stream as-is or JSON as-is
+    if (response.body) {
+      return {
+        success: true,
+        data: response.body,
+        status: response.status,
+      };
+    }
+
     const contentType = response.headers.get('content-type') || '';
     let data: any;
 

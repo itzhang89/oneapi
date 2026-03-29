@@ -37,7 +37,7 @@ interface TestResult {
 }
 
 async function testGemini(): Promise<TestResult> {
-  console.log('\n🧪 Testing Gemini...');
+  console.log('\n🧪 Testing Gemini with x-goog-api-key...');
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -49,16 +49,16 @@ async function testGemini(): Promise<TestResult> {
   }
 
   try {
-    const response = await fetch(`${BASE_URL}/v1/chat/completions`, {
+    // Use Gemini native endpoint with x-goog-api-key header
+    const response = await fetch(`${BASE_URL}/v1beta/models/gemini-2.5-flash:generateContent`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        'x-goog-api-key': apiKey,
       },
       body: JSON.stringify({
-        model: 'gemini-2.5-flash',
-        messages: [{ role: 'user', content: 'Say "Hello, Gemini!" in exactly those words.' }],
-        max_tokens: 50,
+        contents: [{ role: 'user', parts: [{ text: 'Say "Hello, Gemini!" in exactly those words.' }] }],
+        generationConfig: { maxOutputTokens: 50 },
       }),
     });
 
@@ -72,8 +72,7 @@ async function testGemini(): Promise<TestResult> {
       };
     }
 
-    // Accept both OpenAI format and Gemini raw format
-    const content = data.choices?.[0]?.message?.content || data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!content) {
       return {
         name: 'Gemini API',
@@ -155,7 +154,7 @@ async function testNvidia(): Promise<TestResult> {
 }
 
 async function testStream(): Promise<TestResult> {
-  console.log('\n🧪 Testing Streaming (Gemini)...');
+  console.log('\n🧪 Testing Streaming (Gemini with x-goog-api-key)...');
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -167,17 +166,15 @@ async function testStream(): Promise<TestResult> {
   }
 
   try {
-    const response = await fetch(`${BASE_URL}/v1/chat/completions`, {
+    // Use Gemini native streaming endpoint
+    const response = await fetch(`${BASE_URL}/v1beta/models/gemini-2.5-flash:streamGenerateContent`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        'x-goog-api-key': apiKey,
       },
       body: JSON.stringify({
-        model: 'gemini-2.5-flash',
-        messages: [{ role: 'user', content: 'Count from 1 to 3.' }],
-        max_tokens: 50,
-        stream: true,
+        contents: [{ role: 'user', parts: [{ text: 'Count from 1 to 3.' }] }],
       }),
     });
 
@@ -190,30 +187,31 @@ async function testStream(): Promise<TestResult> {
     }
 
     const contentType = response.headers.get('content-type');
-    if (!contentType?.includes('text/event-stream')) {
+    if (!contentType?.includes('application/json')) {
       return {
         name: 'Streaming',
         passed: false,
-        error: `Expected text/event-stream, got ${contentType}`,
+        error: `Expected application/json, got ${contentType}`,
       };
     }
 
-    // Read stream
+    // Read Gemini streaming response
     const reader = response.body?.getReader();
     const decoder = new TextDecoder();
-    let chunkCount = 0;
+    let hasContent = false;
 
     while (true) {
       const { done, value } = await reader!.read();
       if (done) break;
 
       const text = decoder.decode(value, { stream: true });
-      if (text.includes('data:')) {
-        chunkCount++;
+      // Check if we got actual content (JSON array or object)
+      if (text.includes('"candidates"') || text.includes('[')) {
+        hasContent = true;
       }
     }
 
-    if (chunkCount === 0) {
+    if (!hasContent) {
       return {
         name: 'Streaming',
         passed: false,
@@ -224,7 +222,7 @@ async function testStream(): Promise<TestResult> {
     return {
       name: 'Streaming',
       passed: true,
-      response: { chunkCount },
+      response: { hasContent },
     };
   } catch (error: any) {
     return {
