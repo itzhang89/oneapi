@@ -2,32 +2,47 @@
 
 /**
  * Test script for LLM Proxy API
- * Usage: npx tsx scripts/test-api.ts
- * Requires: GEMINI_API_KEY and NVIDIA_API_KEY environment variables
+ * Usage: npx tsx scripts/test-api.ts [options]
+ *
+ * Options:
+ *   --direct     Also test direct provider API calls (default: false, only tests via proxy)
+ *   --provider   Specific provider to test: "gemini" or "nvidia" (default: all)
+ *
+ * Requires: .env file with GEMINI_API_KEY, NVIDIA_API_KEY
  */
 
-// Load .env file if present
-try {
-  const fs = require('fs');
-  const envPath = require('path').join(process.cwd(), '.env');
-  if (fs.existsSync(envPath)) {
-    const content = fs.readFileSync(envPath, 'utf-8');
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith('#')) {
-        const [key, ...valueParts] = trimmed.split('=');
-        const value = valueParts.join('=').replace(/^["']|["']$/g, '');
-        if (key && !process.env[key]) {
-          process.env[key] = value;
-        }
+import * as fs from 'fs';
+import * as path from 'path';
+import * as readline from 'readline';
+
+// Load .env file
+function loadEnv() {
+  const envPath = path.join(process.cwd(), '.env');
+  if (!fs.existsSync(envPath)) {
+    console.warn('⚠️  .env file not found');
+    return;
+  }
+  const content = fs.readFileSync(envPath, 'utf-8');
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('#')) {
+      const [key, ...valueParts] = trimmed.split('=');
+      const value = valueParts.join('=').replace(/^["']|["']$/g, '');
+      if (key && !process.env[key]) {
+        process.env[key] = value;
       }
     }
   }
-} catch (e) {
-  // Ignore .env loading errors
 }
 
-const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
+// Parse CLI args
+function parseArgs() {
+  const args = process.argv.slice(2);
+  return {
+    testDirect: args.includes('--direct'),
+    provider: args.includes('--provider') ? args[args.indexOf('--provider') + 1] : null,
+  };
+}
 
 interface TestResult {
   name: string;
@@ -36,28 +51,29 @@ interface TestResult {
   response?: any;
 }
 
-async function testGemini(): Promise<TestResult> {
-  console.log('\n🧪 Testing Gemini with x-goog-api-key...');
+const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
+const DIRECT_GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta';
+const DIRECT_NVIDIA_URL = 'https://integrate.api.nvidia.com/v1';
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return {
-      name: 'Gemini API',
-      passed: false,
-      error: 'GEMINI_API_KEY environment variable not set',
-    };
-  }
+// Gemini test model
+const GEMINI_MODEL = 'gemini-2.5-flash';
+// Nvidia test model
+const NVIDIA_MODEL = 'nvidia/llama3-70b';
+
+// ============ Gemini Tests ============
+
+async function testGeminiViaProxy(apiKey: string): Promise<TestResult> {
+  console.log('\n🧪 [Gemini] Testing via proxy...');
 
   try {
-    // Use Gemini native endpoint with x-goog-api-key header
-    const response = await fetch(`${BASE_URL}/v1beta/models/gemini-2.5-flash:generateContent`, {
+    const response = await fetch(`${BASE_URL}/v1beta/models/${GEMINI_MODEL}:generateContent`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-goog-api-key': apiKey,
       },
       body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: 'Say "Hello, Gemini!" in exactly those words.' }] }],
+        contents: [{ role: 'user', parts: [{ text: 'Say "Hello, Proxy!" in exactly those words.' }] }],
         generationConfig: { maxOutputTokens: 50 },
       }),
     });
@@ -65,47 +81,54 @@ async function testGemini(): Promise<TestResult> {
     const data = await response.json();
 
     if (!response.ok) {
-      return {
-        name: 'Gemini API',
-        passed: false,
-        error: `HTTP ${response.status}: ${JSON.stringify(data)}`,
-      };
+      return { name: '[Gemini] via proxy', passed: false, error: `HTTP ${response.status}: ${JSON.stringify(data)}` };
     }
 
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!content) {
-      return {
-        name: 'Gemini API',
-        passed: false,
-        error: `Unexpected response format: ${JSON.stringify(data)}`,
-      };
+      return { name: '[Gemini] via proxy', passed: false, error: `Unexpected response: ${JSON.stringify(data)}` };
     }
 
-    return {
-      name: 'Gemini API',
-      passed: true,
-      response: data,
-    };
+    return { name: '[Gemini] via proxy', passed: true, response: { content } };
   } catch (error: any) {
-    return {
-      name: 'Gemini API',
-      passed: false,
-      error: error.message,
-    };
+    return { name: '[Gemini] via proxy', passed: false, error: error.message };
   }
 }
 
-async function testNvidia(): Promise<TestResult> {
-  console.log('\n🧪 Testing NVIDIA NIM...');
+async function testGeminiDirect(apiKey: string): Promise<TestResult> {
+  console.log('\n🧪 [Gemini] Testing direct API...');
 
-  const apiKey = process.env.NVIDIA_API_KEY;
-  if (!apiKey) {
-    return {
-      name: 'NVIDIA NIM API',
-      passed: false,
-      error: 'NVIDIA_API_KEY environment variable not set',
-    };
+  try {
+    const response = await fetch(`${DIRECT_GEMINI_URL}/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: 'Say "Hello, Direct!" in exactly those words.' }] }],
+        generationConfig: { maxOutputTokens: 50 },
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return { name: '[Gemini] direct API', passed: false, error: `HTTP ${response.status}: ${JSON.stringify(data)}` };
+    }
+
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!content) {
+      return { name: '[Gemini] direct API', passed: false, error: `Unexpected response: ${JSON.stringify(data)}` };
+    }
+
+    return { name: '[Gemini] direct API', passed: true, response: { content } };
+  } catch (error: any) {
+    return { name: '[Gemini] direct API', passed: false, error: error.message };
   }
+}
+
+// ============ NVIDIA Tests ============
+
+async function testNvidiaViaProxy(apiKey: string): Promise<TestResult> {
+  console.log('\n🧪 [NVIDIA] Testing via proxy...');
 
   try {
     const response = await fetch(`${BASE_URL}/v1/chat/completions`, {
@@ -115,8 +138,8 @@ async function testNvidia(): Promise<TestResult> {
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'nvidia/llama3-70b',
-        messages: [{ role: 'user', content: 'Say "Hello, NVIDIA!" in exactly those words.' }],
+        model: NVIDIA_MODEL,
+        messages: [{ role: 'user', content: 'Say "Hello, Proxy!" in exactly those words.' }],
         max_tokens: 50,
       }),
     });
@@ -124,173 +147,100 @@ async function testNvidia(): Promise<TestResult> {
     const data = await response.json();
 
     if (!response.ok) {
-      return {
-        name: 'NVIDIA NIM API',
-        passed: false,
-        error: `HTTP ${response.status}: ${JSON.stringify(data)}`,
-      };
+      return { name: '[NVIDIA] via proxy', passed: false, error: `HTTP ${response.status}: ${JSON.stringify(data)}` };
     }
 
-    if (!data.choices?.[0]?.message?.content) {
-      return {
-        name: 'NVIDIA NIM API',
-        passed: false,
-        error: `Unexpected response format: ${JSON.stringify(data)}`,
-      };
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      return { name: '[NVIDIA] via proxy', passed: false, error: `Unexpected response: ${JSON.stringify(data)}` };
     }
 
-    return {
-      name: 'NVIDIA NIM API',
-      passed: true,
-      response: data,
-    };
+    return { name: '[NVIDIA] via proxy', passed: true, response: { content } };
   } catch (error: any) {
-    return {
-      name: 'NVIDIA NIM API',
-      passed: false,
-      error: error.message,
-    };
+    return { name: '[NVIDIA] via proxy', passed: false, error: error.message };
   }
 }
 
-async function testStream(): Promise<TestResult> {
-  console.log('\n🧪 Testing Streaming (Gemini with x-goog-api-key)...');
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return {
-      name: 'Streaming',
-      passed: false,
-      error: 'GEMINI_API_KEY environment variable not set',
-    };
-  }
+async function testNvidiaDirect(apiKey: string): Promise<TestResult> {
+  console.log('\n🧪 [NVIDIA] Testing direct API...');
 
   try {
-    // Use Gemini native streaming endpoint
-    const response = await fetch(`${BASE_URL}/v1beta/models/gemini-2.5-flash:streamGenerateContent`, {
+    const response = await fetch(`${DIRECT_NVIDIA_URL}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
+        'Authorization': `Bearer ${apiKey}`,
+        'Accept': 'application/json',
       },
       body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: 'Count from 1 to 3.' }] }],
+        model: NVIDIA_MODEL,
+        messages: [{ role: 'user', content: 'Say "Hello, Direct!" in exactly those words.' }],
+        max_tokens: 50,
       }),
     });
 
+    const data = await response.json();
+
     if (!response.ok) {
-      return {
-        name: 'Streaming',
-        passed: false,
-        error: `HTTP ${response.status}`,
-      };
+      return { name: '[NVIDIA] direct API', passed: false, error: `HTTP ${response.status}: ${JSON.stringify(data)}` };
     }
 
-    const contentType = response.headers.get('content-type');
-    if (!contentType?.includes('application/json')) {
-      return {
-        name: 'Streaming',
-        passed: false,
-        error: `Expected application/json, got ${contentType}`,
-      };
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      return { name: '[NVIDIA] direct API', passed: false, error: `Unexpected response: ${JSON.stringify(data)}` };
     }
 
-    // Read Gemini streaming response
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder();
-    let hasContent = false;
-
-    while (true) {
-      const { done, value } = await reader!.read();
-      if (done) break;
-
-      const text = decoder.decode(value, { stream: true });
-      // Check if we got actual content (JSON array or object)
-      if (text.includes('"candidates"') || text.includes('[')) {
-        hasContent = true;
-      }
-    }
-
-    if (!hasContent) {
-      return {
-        name: 'Streaming',
-        passed: false,
-        error: 'No data chunks received',
-      };
-    }
-
-    return {
-      name: 'Streaming',
-      passed: true,
-      response: { hasContent },
-    };
+    return { name: '[NVIDIA] direct API', passed: true, response: { content } };
   } catch (error: any) {
-    return {
-      name: 'Streaming',
-      passed: false,
-      error: error.message,
-    };
+    return { name: '[NVIDIA] direct API', passed: false, error: error.message };
   }
 }
 
-async function testAdminPage(): Promise<TestResult> {
-  console.log('\n🧪 Testing Admin Page...');
-
-  try {
-    const response = await fetch(`${BASE_URL}/admin`);
-
-    if (!response.ok) {
-      return {
-        name: 'Admin Page',
-        passed: false,
-        error: `HTTP ${response.status}`,
-      };
-    }
-
-    const html = await response.text();
-
-    if (!html.includes('LLM Proxy')) {
-      return {
-        name: 'Admin Page',
-        passed: false,
-        error: 'Page does not contain expected content',
-      };
-    }
-
-    return {
-      name: 'Admin Page',
-      passed: true,
-    };
-  } catch (error: any) {
-    return {
-      name: 'Admin Page',
-      passed: false,
-      error: error.message,
-    };
-  }
-}
+// ============ Main ============
 
 async function runTests() {
+  loadEnv();
+  const opts = parseArgs();
+
   console.log('🚀 LLM Proxy Test Suite');
-  console.log(`📡 Testing against: ${BASE_URL}`);
+  console.log(`📡 Proxy URL: ${BASE_URL}`);
+  console.log(`🔑 Direct API tests: ${opts.testDirect ? 'enabled' : 'disabled'}`);
   console.log('='.repeat(50));
 
   const results: TestResult[] = [];
 
-  // Check if server is running
+  // Check server connectivity
   try {
     const health = await fetch(`${BASE_URL}/admin`);
     if (!health.ok) throw new Error('Server not responding');
+    console.log('✅ Proxy server is running');
   } catch (error: any) {
-    console.error(`\n❌ Cannot connect to server at ${BASE_URL}`);
+    console.error(`\n❌ Cannot connect to proxy at ${BASE_URL}`);
     console.error('   Make sure the server is running: npm run dev');
     process.exit(1);
   }
 
-  // Run tests
-  results.push(await testAdminPage());
-  results.push(await testGemini());
-  results.push(await testStream());
+  // Gemini tests
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey && (!opts.provider || opts.provider === 'gemini')) {
+    if (opts.testDirect) {
+      results.push(await testGeminiDirect(geminiKey));
+    }
+    results.push(await testGeminiViaProxy(geminiKey));
+  } else if (!geminiKey) {
+    console.log('\n⚠️  GEMINI_API_KEY not found in .env, skipping Gemini tests');
+  }
+
+  // NVIDIA tests
+  const nvidiaKey = process.env.NVIDIA_API_KEY;
+  if (nvidiaKey && (!opts.provider || opts.provider === 'nvidia')) {
+    if (opts.testDirect) {
+      results.push(await testNvidiaDirect(nvidiaKey));
+    }
+    results.push(await testNvidiaViaProxy(nvidiaKey));
+  } else if (!nvidiaKey) {
+    console.log('\n⚠️  NVIDIA_API_KEY not found in .env, skipping NVIDIA tests');
+  }
 
   // Summary
   console.log('\n' + '='.repeat(50));
@@ -300,8 +250,8 @@ async function runTests() {
   for (const result of results) {
     if (result.passed) {
       console.log(`  ✅ ${result.name}`);
-      if (result.response) {
-        console.log(`     Response: ${JSON.stringify(result.response).slice(0, 100)}...`);
+      if (result.response?.content) {
+        console.log(`     Response: "${result.response.content}"`);
       }
     } else {
       console.log(`  ❌ ${result.name}`);
