@@ -287,7 +287,7 @@ async function executeFetch(
     });
 
     const isStreaming = body?.stream ||
-        path.includes('streamGenerateContent') ||
+        url.includes('streamGenerateContent') ||
         responseHeaders['content-type']?.includes('text/event-stream');
 
     // Handle streaming responses

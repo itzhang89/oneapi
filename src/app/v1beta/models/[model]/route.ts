@@ -3,26 +3,26 @@ import {NextRequest, NextResponse} from 'next/server';
 import {routeRequest, ProxyResult} from '@/lib/routing';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ model: string }>  }) {
-    return handleRequest(request, 'GET', params);
+    return handleRequest(request, 'GET', { params });
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ model: string }>  }) {
-    return handleRequest(request, 'POST', params);
+    return handleRequest(request, 'POST', { params });
 }
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ model: string }>  }) {
-    return handleRequest(request, 'PUT', params);
+    return handleRequest(request, 'PUT', { params });
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ model: string }>  }) {
-    return handleRequest(request, 'DELETE', params);
+    return handleRequest(request, 'DELETE', { params });
 }
 
 async function handleRequest(request: NextRequest, method: string, { params }: { params: Promise<{ model: string }>  }) {
     try {
-        // 构建路径
+        // 构建路径 - Gemini expects /models/{model}:action format
         const { model } = await params;
-        const path = '/' + model;
+        const path = '/models/' + model;
 
         console.log(`Received ${method} request for ${path}`);
 
