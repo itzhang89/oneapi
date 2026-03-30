@@ -32,24 +32,14 @@ export async function routeRequest(ctx: RoutingContext): Promise<ProxyResult> {
   let bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
   let nvapiKey = bearerToken?.startsWith('nvapi-') ? bearerToken : null;
 
-  // If x-goog-api-key header is present, forward directly to Gemini without any transformation
+  // If x-goog-api-key header is present, forward directly to Gemini using default base URL
   if (xGoogApiKey) {
-    const config = loadConfig();
-    const geminiProvider = config.providers['gemini'];
-    if (geminiProvider) {
-      return rawPassthroughToGemini(geminiProvider, method, path, body, xGoogApiKey);
-    }
-    return { success: false, error: 'Gemini provider not configured', status: 500 };
+    return rawPassthroughToGeminiDefault(method, path, body, xGoogApiKey);
   }
 
-  // If Bearer token starts with nvapi-, forward directly to NVIDIA
+  // If Bearer token starts with nvapi-, forward directly to NVIDIA using default base URL
   if (nvapiKey) {
-    const config = loadConfig();
-    const nvidiaProvider = config.providers['nvidia'];
-    if (nvidiaProvider) {
-      return rawPassthroughToNvidia(nvidiaProvider, method, path, body, nvapiKey);
-    }
-    return { success: false, error: 'NVIDIA provider not configured', status: 500 };
+    return rawPassthroughToNvidiaDefault(method, path, body, nvapiKey);
   }
 
   // Check if this is a provider API key
@@ -245,6 +235,130 @@ async function rawPassthroughToNvidia(
   }
 
   const url = `${provider.baseUrl}${path}`;
+
+  try {
+    const fetchOptions: RequestInit = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'Accept': body?.stream ? 'text/event-stream' : 'application/json',
+      },
+    };
+
+    if (body && ['POST', 'PUT', 'PATCH'].includes(method)) {
+      fetchOptions.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(url, fetchOptions);
+
+    // Handle streaming responses
+    if (body?.stream) {
+      return {
+        success: true,
+        data: response.body,
+        status: response.status,
+      };
+    }
+
+    // Return raw response - JSON as-is
+    const contentType = response.headers.get('content-type') || '';
+    let data: any;
+
+    if (contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      data = await response.text();
+    }
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: typeof data === 'string' ? data : JSON.stringify(data),
+        status: response.status,
+      };
+    }
+
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message, status: 500 };
+  }
+}
+
+// Raw passthrough to Gemini using default base URL (no provider config required)
+async function rawPassthroughToGeminiDefault(
+  method: string,
+  path: string,
+  body?: any,
+  apiKey?: string
+): Promise<ProxyResult> {
+  if (!apiKey) {
+    return { success: false, error: 'API key required', status: 500 };
+  }
+
+  const baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
+  const url = `${baseUrl}${path}?key=${apiKey}`;
+
+  try {
+    const fetchOptions: RequestInit = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    };
+
+    if (body && ['POST', 'PUT', 'PATCH'].includes(method)) {
+      fetchOptions.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(url, fetchOptions);
+
+    // Handle streaming responses
+    if (response.body) {
+      return {
+        success: true,
+        data: response.body,
+        status: response.status,
+      };
+    }
+
+    // Return raw response - JSON as-is
+    const contentType = response.headers.get('content-type') || '';
+    let data: any;
+
+    if (contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      data = await response.text();
+    }
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: typeof data === 'string' ? data : JSON.stringify(data),
+        status: response.status,
+      };
+    }
+
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message, status: 500 };
+  }
+}
+
+// Raw passthrough to NVIDIA using default base URL (no provider config required)
+async function rawPassthroughToNvidiaDefault(
+  method: string,
+  path: string,
+  body?: any,
+  apiKey?: string
+): Promise<ProxyResult> {
+  if (!apiKey) {
+    return { success: false, error: 'API key required', status: 500 };
+  }
+
+  const baseUrl = 'https://integrate.api.nvidia.com/v1';
+  const url = `${baseUrl}${path}`;
 
   try {
     const fetchOptions: RequestInit = {
