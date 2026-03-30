@@ -313,7 +313,17 @@ async function rawPassthroughToGeminiDefault(
 
     const response = await fetch(url, fetchOptions);
 
-    // Handle streaming responses
+    // Handle streaming responses - wrap Gemini stream to SSE format
+    const isStreaming = path.includes('streamGenerateContent');
+    if (response.body && isStreaming) {
+      return {
+        success: true,
+        data: wrapGeminiStream(response.body),
+        status: response.status,
+      };
+    }
+
+    // Non-streaming response
     if (response.body) {
       return {
         success: true,
