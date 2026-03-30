@@ -296,8 +296,9 @@ async function rawPassthroughToGeminiDefault(
     return { success: false, error: 'API key required', status: 500 };
   }
 
-  const baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
-  const url = `${baseUrl}${path}?key=${apiKey}`;
+  const baseUrl = 'https://generativelanguage.googleapis.com';
+  // path is like /v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse
+  const url = `${baseUrl}${path}${path.includes('?') ? '&' : '?'}key=${apiKey}`;
 
   try {
     const fetchOptions: RequestInit = {
@@ -313,12 +314,15 @@ async function rawPassthroughToGeminiDefault(
 
     const response = await fetch(url, fetchOptions);
 
-    // Handle streaming responses - wrap Gemini stream to SSE format
+    // Handle streaming responses
     const isStreaming = path.includes('streamGenerateContent');
+    const isSSE = path.includes('alt=sse');
     if (response.body && isStreaming) {
+      // If alt=sse, Gemini already returns SSE format - pass through as-is
+      // Otherwise, wrap newline-JSON to SSE format
       return {
         success: true,
-        data: wrapGeminiStream(response.body),
+        data: isSSE ? response.body : wrapGeminiStream(response.body),
         status: response.status,
       };
     }
